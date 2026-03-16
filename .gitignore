@@ -1,0 +1,13 @@
+*.pdf
+
+# latex
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.bbl
+*.blg
+
+# mac
+*.DS_Store
