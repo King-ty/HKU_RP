@@ -11,6 +11,7 @@
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{algorithm}
+\usepackage{algpseudocode}
 \usepackage{xspace}
 \usepackage{algorithmic}
 \usepackage{caption}
@@ -327,7 +328,7 @@ To resolve this, we propose an Overhead-Aware Balanced Partitioning algorithm.
 
 Unlike existing PP partitioning methods that treat MTP as a single layer, our approach explicitly accounts for the multi-round invocation overhead of MTP modules.
 We first profile the per-layer execution costs through offline benchmarking, then formulate the partition as a discrete optimization problem.
-The key insight is that partition points can only be placed at residual connection boundaries to maintain model structural integrity.
+The key insight is that partition points can only be placed at residual connection boundaries to maintain model structural integrity and minimize communication overhead.
 
 The optimization objective is to minimize the total execution time for $N$ micro-batches:
 \begin{equation}
@@ -348,18 +349,18 @@ In PP-based PD disaggregation, each Prefill stage generates only a layer-wise sl
 This transforms the simple point-to-point KV cache transfer into a complex many-to-many routing problem.
 
 \sys addresses this by assigning a dedicated KV Cache Connector to each pipeline stage rather than using a monolithic connector for the entire cluster.
-Each stage's connector independently manages its KV cache slice, tracking memory allocation, transfer status, and garbage collection.
+Each stage's connector independently manages its KV cache slice, including tracking memory allocation, transfer status, and garbage collection.
 
 \subsubsection{Stage-wise On-Demand Transmission}
 
 The conventional approach of deferring KV cache transmission until all Prefill stages complete causes memory accumulation and potential pipeline stalls.
-\sys leverages the strictly uni-directional data dependency of KV cache generation to enable fine-grained, on-demand transmission.
+\sys leverages the strictly uni-directional data dependency of KV cache generation to enable stage-wise, on-demand transmission.
 
 The transmission follows a pull-based model:
 \begin{enumerate}
     \item During initialization, each Decode stage's KV Connector computes which Prefill stages it needs to request KV cache from, based on the layer assignment and PP configuration.
     \item When a Decode stage is ready to receive KV cache, it simultaneously sends pull requests to all connected Prefill stages.
-    \item Each Prefill stage, upon completing its computation for a request, can immediately transfer and free its local KV cache slice without waiting for downstream stages.
+    \item Each Prefill stage, upon completing its computation for a micro-batch, can immediately respond to KV cache pull requests from Decode stages, transferring and freeing its local KV cache slice without waiting for downstream stages.
 \end{enumerate}
 
 This design effectively eliminates Prefill memory exhaustion and pipeline stalls, while the stage-level transmission granularity balances bandwidth utilization and communication overhead.
@@ -373,9 +374,9 @@ This design effectively eliminates Prefill memory exhaustion and pipeline stalls
 
 \subsection{Computation-Aware Scheduling}
 
-To address the request-variability imbalance, we replace static token-budgeting with fine-grained time-budgeting.
+To address the request-variability imbalance, we replace static token-budgeting with fine-grained time-budgeting, which accounts for the quadratic attention complexity of LLMs. We call this approach Computation-Aware Scheduling.
 
-\subsubsection{Quadratic Cost Model}
+\subsubsection{Quadratic Polynomial Cost Model}
 
 We model the execution time of a micro-batch as a quadratic function of chunk length ($x$) and historical context length ($y$):
 \begin{equation}
@@ -384,44 +385,58 @@ T_{x,y} = a \cdot x^2 + b \cdot x \cdot y + c \cdot x + d \cdot y + e
 
 This formulation captures the $O(S^2)$ complexity of attention mechanisms, where:
 \begin{itemize}
-    \item $x^2$ term captures the self-attention within the current chunk
+    \item $x^2$ term captures the quadratic self-attention within the current chunk
     \item $x \cdot y$ term captures the cross-attention between current chunk and historical context
-    \item Linear terms capture the feed-forward and other linear operations
+    \item $x$ term captures linear operations within the current chunk (e.g., linear projection, element-wise activation, softmax)
+    \item $y$ term captures linear operations on historical context (e.g., MLA projection, linear memory access)
+    \item Constant term captures fixed overhead (e.g., kernel launch, operator dispatch)
 \end{itemize}
 
-The coefficients $(a, b, c, d, e)$ are initialized through offline profiling with a few sample points and dynamically updated during runtime using Recursive Least Squares (RLS) based on actual recorded latencies.
+The coefficients $(a, b, c, d, e)$ are initialized through offline profiling with a few sample points and can be dynamically updated during runtime using Recursive Least Squares (RLS) based on actual recorded latencies.
 
-\subsubsection{Time-Budget Scheduling}
+\subsubsection{Time-Budget Scheduling Algorithm}
 
-The maximum time budget is empirically set to the execution time of a zero-context request that precisely saturates the hardware resources, mathematically guaranteeing an OOM-free runtime.
+Based on the quadratic polynomial cost model, we propose a time-budget scheduling algorithm that explicitly controls micro-batch execution time to achieve balanced workloads across the pipeline.
+Unlike traditional token-budget approaches that assume linear time-token relationships, our method directly constrains execution time, naturally accounting for the quadratic attention complexity.
 
-\begin{algorithm}[h]
-\caption{Computation-Aware Time-Budget Scheduling}
+\begin{algorithm}[H]
 \label{alg:scheduling}
+\caption{Computation-Aware Scheduling with Time-Budget Constraint}
 \begin{algorithmic}[1]
-\STATE Initialize coefficients $(a,b,c,d,e)$ via offline profiling
-\STATE Set maximum budget $T_{budget}$
-\STATE \textbf{loop} for each scheduling step
-\STATE \quad $\mathcal{M} \leftarrow \emptyset$, $B \leftarrow T_{budget}$
-\STATE \quad \textbf{while} Request Queue not empty \textbf{and} $B > 0$ \textbf{do}
-\STATE \quad \quad Pop request $r$ with context length $y_r$
-\STATE \quad \quad Calculate estimated time $T_{est}$ for full chunk
-\STATE \quad \quad \textbf{if} $T_{est} \le B$ \textbf{then}
-\STATE \quad \quad \quad Allocate full chunk, $\mathcal{M} \leftarrow \mathcal{M} \cup \{r\}$
-\STATE \quad \quad \quad $B \leftarrow B - T_{est}$
-\STATE \quad \quad \textbf{else}
-\STATE \quad \quad \quad Reverse-calculate maximum chunk size $x_r$ s.t. $T_{x_r, y_r} \le B$
-\STATE \quad \quad \quad Allocate chunk of size $x_r$, update request in queue
-\STATE \quad \quad \quad $B \leftarrow 0$
-\STATE \quad \quad \textbf{end if}
-\STATE \quad \textbf{end while}
-\STATE \quad Execute micro-batch $\mathcal{M}$ and record $T_{actual}$
-\STATE \quad Update coefficients via RLS using $(x, y, T_{actual})$
-\STATE \textbf{end loop}
+\State \textbf{Initialize} coefficients $\Theta = (a, b, c, d, e)$ via offline profiling
+\State Set maximum budget $T_{budget}$
+\Loop \text{ for each scheduling step}
+    \State $\mathcal{M} \leftarrow \emptyset$
+    \State $B \leftarrow T_{budget}$
+    \While{Request Queue is not empty \textbf{and} $B > 0$}
+        \State Pop request $r_i$ with remaining length $l_i$ and context length $y_i$
+        \State $T_{est} \leftarrow a l_i^2 + b l_i y_i + c l_i + d y_i + e$
+        \If{$T_{est} \le B$}
+            \State $x_i \leftarrow l_i$
+            \State $B \leftarrow B - T_{est}$
+        \Else \Comment{Budget exceeded: reverse-calculate maximum allowable chunk size $x_i$}
+            \State $x_i \leftarrow \left\lfloor \frac{-(b y_i + c) + \sqrt{(b y_i + c)^2 - 4a(d y_i + e - B)}}{2a} \right\rfloor$
+            \State Update $r_i$'s remaining length to $l_i - x_i$ and push back to Queue
+            \State $B \leftarrow 0$
+        \EndIf
+        \State $\mathcal{M} \leftarrow \mathcal{M} \cup \{ \text{chunk}(r_i, x_i) \}$
+    \EndWhile
+    \State Execute micro-batch $\mathcal{M}$ on Pipeline
+    \State \textbf{[Optional]} Record actual execution latency $T_{actual}$
+    \State \textbf{[Optional]} Update $\Theta$ using Recursive Least Squares (RLS) with $(\mathcal{M}, T_{actual})$
+\EndLoop
 \end{algorithmic}
 \end{algorithm}
 
 Algorithm~\ref{alg:scheduling} presents the detailed scheduling procedure.
+The algorithm maintains a time budget $T_{budget}$ for each micro-batch and iteratively allocates requests until the budget is exhausted.
+For each request, it estimates the execution time using the quadratic model.
+If the estimated time fits within the remaining budget, the full chunk is allocated; otherwise, the algorithm reverse-calculates the maximum chunk size that satisfies the budget constraint.
+After execution, the actual latency is recorded to update the model coefficients via RLS, enabling continuous adaptation to workload characteristics.
+
+The time budget hyperparameter $T_{budget}$ can be empirically set to the execution time of a zero-context request that precisely saturates hardware resources.
+This heuristic ensures that each micro-batch maximally utilizes available memory and compute without exceeding capacity, mathematically guaranteeing an OOM-free runtime.
+
 By explicitly modeling execution time rather than relying on token counts, \sys achieves balanced micro-batch execution times even under highly variable request lengths, effectively eliminating request-variability induced pipeline bubbles.
 
 \begin{figure}[h]
@@ -436,27 +451,30 @@ By explicitly modeling execution time rather than relying on token counts, \sys 
 \subsection{Experimental Setup}
 
 \textbf{Hardware and Model.}
-We implemented \sys on top of the vLLM framework (v0.6.3).
-The evaluation was conducted on a 32-NPU (4-node) Ascend 910C cluster, with each node containing 8 NPUs interconnected via HCCS.
-We deployed the DeepSeek-R1 (671B) model, which features a Mixture-of-Experts architecture with 61 active experts per layer and supports Multi-Token Prediction for speculative decoding.
+We implemented \sys on top of the OmniInfer framework~\cite{omniinfer}.
+The evaluation was conducted on a 32-NPU (4-node) Ascend 910C cluster, with each node containing 8 NPUs interconnected via HCCS~\cite{hccs}.
+We deployed the DeepSeek-R1 (671B) model~\cite{deepseek-r1}, which features a Mixture-of-Experts architecture and supports Multi-Token Prediction.
 
 \textbf{Baselines.}
 We compared \sys against two representative baselines:
 \begin{itemize}
-    \item \textbf{vLLM-Ascend:} The standard open-source inference engine for Ascend NPUs, employing TP-only parallelism without PP or MTP support.
-    \item \textbf{OmniInfer:} A state-of-the-art industrial solution that implements MTP and PD disaggregation but without PP integration.
+    \item \textbf{vLLM-Ascend~\cite{vllm, vllm-ascend}:} The standard open-source inference engine for Ascend NPUs.
+    \item \textbf{OmniInfer~\cite{omniinfer}:} A state-of-the-art industrial solution that implements MTP and PD disaggregation but without PP integration.
 \end{itemize}
 
 \textbf{Workloads.}
-We evaluated under two workload configurations:
-\begin{itemize}
-    \item \textbf{Short-context (2K):} Request lengths uniformly sampled from [512, 2048] tokens.
-    \item \textbf{Long-context (32K):} Request lengths uniformly sampled from [16K, 32K] tokens.
-\end{itemize}
-Each configuration includes both fixed-length and variable-length request patterns to assess scheduling robustness.
+We evaluated under four workload configurations: Short-context Fixed (2K), Short-context Variable (2K), Long-context Fixed (32K), and Long-context Variable (32K).
 
 \textbf{Metrics.}
-We measure: (1) \textbf{Throughput} (requests/second) under strict SLA constraints (TTFT $<$ 2s, TPOT $<$ 100ms); (2) \textbf{Pipeline Bubble Ratio} defined as idle time / total execution time; (3) \textbf{Accuracy} on the HumanEval benchmark to verify correctness.
+We measure: (1) \textbf{Throughput} (requests/second) under strict latency SLA constraints; (2) \textbf{Pipeline Bubble Ratio} defined as idle time / total execution time; (3) \textbf{Accuracy} on the HumanEval benchmark to verify correctness.
+
+\textbf{Research Questions.}
+Based on the metrics, we aim to answer the following questions:
+\begin{itemize}
+    \item \textbf{RQ1 (Throughput):} How much does \sys improve end-to-end throughput compared to baselines under the same SLAs?
+    \item \textbf{RQ2 (Pipeline Efficiency):} Does \sys effectively mitigate pipeline bubbles in highly variable-length request scenarios?
+    \item \textbf{RQ3 (Robustness):} Can \sys guarantee zero degradation in model accuracy?
+\end{itemize}
 
 \subsection{End-to-End Throughput}
 
@@ -493,15 +511,10 @@ Figure~\ref{fig:throughput} presents the normalized end-to-end throughput compar
     \label{fig:throughput}
 \end{figure}
 
-\textbf{Comparison with vLLM-Ascend.}
-Under strict SLA constraints, \sys achieves up to 90.8\% throughput improvement over vLLM-Ascend.
-The improvement is most significant in long-context scenarios (32K), where PP's communication efficiency becomes critical.
-vLLM-Ascend's TP-only approach suffers from severe inter-node communication overhead, limiting its scalability.
-
-\textbf{Comparison with OmniInfer.}
-\sys outperforms OmniInfer by 9.47\% on average.
-While OmniInfer benefits from MTP and PD disaggregation, its lack of PP integration means it cannot fully leverage the communication efficiency of pipeline parallelism.
-\sys's synergistic co-design enables it to combine the benefits of all three techniques.
+Under strict SLA constraints, \sys achieves up to 90.8\% throughput improvement over vLLM-Ascend and 9.47\% over OmniInfer.
+The improvement over vLLM-Ascend is most significant in long-context scenarios (32K), where vLLM-Ascend's suboptimal implementation leaves substantial room for optimization.
+While OmniInfer benefits from MTP and PD disaggregation, its lack of PP integration prevents it from fully leveraging pipeline parallelism's communication efficiency.
+\sys's synergistic co-design enables it to combine the benefits of all three techniques, achieving superior performance across all workload configurations.
 
 \textbf{Variable-length Robustness.}
 The performance gap between \sys and baselines widens under variable-length workloads, demonstrating the effectiveness of our computation-aware scheduling in handling request variability.
@@ -516,58 +529,73 @@ While token-based schedulers struggle with the quadratic attention complexity, \
     \label{fig:bubble-analysis}
 \end{figure}
 
-Figure~\ref{fig:bubble-analysis} illustrates the pipeline bubble breakdown.
-Our three-pronged approach effectively addresses all sources of imbalance:
+Figure~\ref{fig:bubble-analysis} illustrates the pipeline bubble breakdown, demonstrating that our approach effectively addresses all sources of imbalance:
 \begin{itemize}
-    \item \textbf{Centralized MTP Processing} eliminates the structural bubbles caused by MTP's cross-stage communication, reducing inter-stage imbalance by 85\%.
-    \item \textbf{Stage-wise KV Transmission} prevents KV cache accumulation, eliminating memory-induced stalls in the Prefill stage.
-    \item \textbf{Computation-Aware Scheduling} reduces inter-batch imbalance by 78\% compared to token-based approaches.
+    \item The pipeline achieves balanced stage execution, with no single stage emerging as a significant bottleneck.
+    \item Prefill stages do not accumulate KV cache, preventing pipeline stalls even under bursty traffic conditions.
+    \item Pipeline efficiency remains stable even under highly variable request lengths, maintaining consistent throughput regardless of workload variability.
 \end{itemize}
 
-Overall, \sys strictly bounds the pipeline bubble ratio to under 5\%, compared to 25-40\% in baseline PP implementations.
+These results demonstrate that \sys strictly bounds the pipeline bubble ratio to under 5\% across all workload configurations.
 
 \subsection{Accuracy Verification}
 
 To verify that our scheduling and partitioning strategies do not compromise model correctness, we evaluated \sys on the HumanEval benchmark.
+Table~\ref{tab:accuracy} presents the accuracy comparison across different systems.
+
+\begin{table}[h]
+\centering
+\caption{Accuracy Comparison on HumanEval Benchmark}
+\label{tab:accuracy}
+\begin{tabular}{lc}
+\toprule
+\textbf{System} & \textbf{HumanEval Pass Rate (\%)} \\
+\midrule
+vLLM-Ascend & 91.83 \\
+OmniInfer (w/o PP) & 91.78 \\
+\sys & 91.78 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \sys achieved a 91.78\% pass rate, strictly matching the accuracy of both vLLM-Ascend and OmniInfer baselines.
 This confirms that our techniques introduce no accuracy degradation while delivering significant performance improvements.
 
-\subsection{Ablation Study}
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=0.9\textwidth]{pics/comm_change.pdf}
-    \caption{Ablation Study: Impact of Individual Components. Each component contributes significantly to the overall performance improvement.}
-    \label{fig:ablation}
-\end{figure}
-
-Figure~\ref{fig:ablation} presents the ablation study results.
-We evaluate three variants of \sys, each with one component disabled:
-\begin{itemize}
-    \item \textbf{w/o Centralized MTP:} Without centralized MTP processing, inter-stage communication increases by 3.2$\times$, and pipeline bubbles increase to 18\%.
-    \item \textbf{w/o Stage-wise KV:} Without stage-wise KV transmission, memory pressure causes 12\% more pipeline stalls under bursty traffic.
-    \item \textbf{w/o Comp.-Aware Sched:} Without computation-aware scheduling, inter-batch imbalance increases to 22\% for long-context requests.
-\end{itemize}
-
-Each component contributes significantly to the overall performance, validating our synergistic co-design approach.
+% \subsection{Ablation Study}
+% No ablation study now.
+% Maybe ablation computation-aware scheduling later.
 
 
 % ==========================================
-% 4 Future Work
+% 4 Conclusion
+% ==========================================
+\section{Conclusion}
+
+We systematically identified that naive pipeline parallelism in LLM inference fails due to multi-dimensional load imbalance: model-partitioning, phase-interference, and request-variability imbalances.
+We engineered \sys, the first pipeline-balanced high-performance LLM inference system.
+Through a synergistic co-design of centralized MTP processing, stage-wise KV cache transmission, and computation-aware scheduling, \sys efficiently addresses all sources of imbalance bubbles.
+Evaluated on DeepSeek-R1 (671B) over Ascend 910C clusters, \sys delivers up to 90.8\% throughput gains over open-source standards under the same SLA constraints, while maintaining zero accuracy degradation.
+The system has been successfully deployed in production clusters, demonstrating its practical viability for large-scale LLM serving.
+
+
+% ==========================================
+% 5 Future Work
 % ==========================================
 \section{Future Work}
 
-While the current architecture of \textsc{\sys} significantly resolves the load imbalance issues in pipeline-parallel LLM inference, deploying such large-scale distributed systems in production cloud environments introduces reliability and dynamic scaling challenges. Our future work will focus on the following directions:
+While \sys significantly resolves load imbalance issues in pipeline-parallel LLM inference, there are still room for improvement.
+Our future work will focus on the following directions:
 
 \begin{itemize}
-    \item \textbf{Automated Fault Tolerance for Pipeline Parallelism:} In a cross-node PP setup, the failure of a single node (or NPU) can stall the entire pipeline, leading to catastrophic inference failures. We plan to design a lightweight, state-aware recovery mechanism. By utilizing the stage-wise KV Cache Connectors introduced in \textsc{\sys}, we can periodically checkpoint metadata and KV states asynchronously, enabling rapid recreation of failed stages without recomputing the entire prompt from scratch.
+    \item \textbf{Automated Fault Tolerance for Pipeline Parallelism:} In a cross-node PP setup, the failure of a single node (or NPU) can stall the entire pipeline, leading to catastrophic inference failures.
+    We plan to design a lightweight, state-aware recovery mechanism.
+    By utilizing the stage-wise KV Cache Connectors introduced in \sys, we can periodically checkpoint metadata and KV states asynchronously, enabling rapid recreation of failed stages without recomputing the entire prompt from scratch.
     
-    \item \textbf{Elastic Pipeline Reconfiguration:} Currently, the overhead-aware partitioning is calculated statically during initialization. Real-world inference traffic fluctuates drastically, shifting the bottleneck dynamically between Prefill and Decode phases. We will explore an elastic scaling scheduler that can dynamically adjust the number of pipeline stages or re-partition layers on the fly (via hot-swapping weights) to adapt to real-time traffic characteristics, maximizing hardware utilization.
-    
-    \item \textbf{Multi-Tenant MoE Routing Optimization:} As models like DeepSeek-R1 rely heavily on Mixture-of-Experts (MoE), expert load imbalance remains a secondary bottleneck. We plan to integrate cross-batch and multi-tenant expert routing strategies into \textsc{\sys}'s computation-aware scheduler. By co-scheduling requests with overlapping expert affinities, we aim to reduce expert-to-expert communication overhead across pipeline stages.
+    \item \textbf{Offline Inference Optimization:} In offline inference scenarios (e.g., the rollout phase in LLM reinforcement learning (RL) post-training~\cite{}), throughput is the primary optimization objective.
+    We plan to further optimize \sys for offline inference workloads, where batch size and sequence length can be more aggressively tuned to maximize hardware utilization without online latency constraints.
 \end{itemize}
 
-By addressing these systems-level challenges, we aim to evolve \textsc{\sys} into a highly resilient, fully autonomous inference infrastructure capable of sustaining the next generation of trillion-parameter models.
+By addressing these challenges, we aim to evolve \sys into a highly resilient, fully autonomous inference infrastructure capable of sustaining the next generation of trillion-parameter models.
 
 
 % ==========================================
