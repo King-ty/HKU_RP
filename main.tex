@@ -190,19 +190,27 @@ Expert Parallel (EP)~\cite{deepseekv3} & All-to-All & $2 \cdot K \cdot b \cdot S
 \subsection{Sources of Pipeline Imbalance}
 
 While Pipeline Parallelism offers significant potential for cross-node deployment of large-scale models, its performance is often hindered by the notorious pipeline bubbles.
-Achieving a balanced pipeline requires both near-identical processing times across stages and consistent execution durations for each micro-batch.
-In real-world inference systems, a trivial PP implementation often introduces severe load imbalance.
-% 先写到这里，后面就不太对劲了，后面可以先说3种本质原因，然后对应我们的3中原因。3种本质原因是不平衡的stage切分，不平衡的micro-batch，时序依赖。
-We categorize the root causes of this imbalance into three dimensions.
+Pipeline bubbles can be categorized into two types: \textbf{inherent bubbles} and \textbf{imbalance bubbles}.
 
-\subsubsection{Structural Imbalance from Heterogeneous Architectures}
+Inherent bubbles arise from the intrinsic data dependencies during pipeline warm-up and cool-down phases.
+During warm-up, early stages process the first micro-batch while later stages remain idle; during cool-down, later stages process the final micro-batch while earlier stages have completed.
+These inherent bubbles can be amortized and safely ignored over long generation periods when the number of micro-batches significantly exceeds the number of pipeline stages ($N \gg P$)~\cite{gpipe}.
 
-Traditional pipeline balancing assumes homogeneous workloads across layers.
-However, modern models like DeepSeek-R1 introduce heterogeneous structures, such as initial Dense layers followed by Mixture-of-Experts (MoE) layers, which invalidate simple layer-wise partitioning.
-A more significant challenge arises from Multi-Token Prediction (MTP).
-In the computation flow, MTP modules are invoked multiple times after the main model, necessitating a weighted consideration of their overhead.
-Structurally, MTP modules share the Embedding layer (at Stage 0) and the Output Head (at Stage $N-1$) with the original model for weight consistency.
-This spatial dispersion forces intermediate results to ``round-trip'' between the first and last nodes, introducing not only extra communication but also structural bubbles as intermediate nodes remain idle during these transfers.
+In contrast, \textbf{imbalance bubbles} persist throughout the entire pipeline execution, continuously degrading GPU utilization and must be systematically mitigated.
+These bubbles stem from three fundamental causes: (1) \textit{uneven stage partitioning}, where different stages have mismatched execution times; (2) \textit{inconsistent micro-batch workloads}, where different micro-batches require varying processing times; and (3) \textit{data dependencies}, where stages must wait for data from other stages before proceeding.
+In the context of modern LLM inference, we identify three specific types of imbalance bubbles that arise from these fundamental causes: \textbf{model-partitioning imbalance}, \textbf{phase-interference imbalance}, and \textbf{request-variability imbalance}.
+
+\subsubsection{Model-Partitioning Imbalance}
+
+Modern LLMs exhibit heterogeneous architectural characteristics that invalidate naive layer-wise partitioning strategies.
+
+Contemporary LLMs integrate Dense and Mixture-of-Experts (MoE) FFNs~\cite{deepseekv3}, as well as Full and Linear Attention mechanisms across different layers.
+Naively partitioning by layer count inevitably leads to severe workload imbalances across stages, as different layer types exhibit vastly different computational costs.
+
+A more significant challenge arises from Multi-Token Prediction (MTP)~\cite{eagle, deepseekv3}, a training-inference co-designed speculative decoding paradigm that is becoming the new industry standard for high-throughput inference.
+MTP modules deeply share weights with the base model's Embedding and LM Head.
+In naive PP, placing the Embedding at Stage 0 and the LM Head at Stage $N-1$ forces intermediate activations to ``round-trip'' across the cluster, incurring extra inter-stage communication.
+This mutual dependency also stalls intermediate stages during MTP computation, introducing structural imbalance bubbles as these stages remain idle.
 
 \begin{figure}[h]
     \centering
@@ -211,14 +219,24 @@ This spatial dispersion forces intermediate results to ``round-trip'' between th
     \label{fig:mtp-challenge}
 \end{figure}
 
-\subsubsection{Operational Imbalance in Disaggregated Prefill-Decode Phases}
+\subsubsection{Phase-Interference Imbalance}
 
-The stark difference in computational characteristics between the Prefill and Decode phases is a primary driver of imbalance.
-Although Prefill-Decode disaggregation has become the standard to mitigate interference, it introduces new bubbles in PP scenarios due to KV cache transfers.
-Current systems typically aggregate KV cache for all layers and transmit them after the entire Prefill stage is completed to maintain high bandwidth utilization and avoid network congestion.
-In a PP pipeline, this ``all-at-once'' transfer causes KV cache to accumulate on Prefill nodes.
-If this accumulation saturates memory resources, Prefill nodes are forced to stall and cannot process new micro-batches until the downstream stages receive the cached data.
-Furthermore, PP fragments the KV cache across stages, complicating the stage-to-stage management and transfer of these data slices.
+LLM inference comprises two distinct phases with fundamentally different computational characteristics: the Prefill phase, which processes the prompt in parallel to generate the first output token, exhibiting compute-bound behavior; and the Decode phase, which iteratively generates subsequent tokens one by one, exhibiting memory-bound behavior~\cite{splitwise, distserve}.
+This inherent dichotomy creates interference when both phases are co-located.
+
+A single Prefill step takes exponentially longer than a Decode step, causing prefill-domant micro-batches to run significantly slower than decode-domant batches, which drastically degrades Time Between Tokens (TBT).
+This drastic time discrepancy creates highly variable micro-batch execution times, generating imbalance bubbles.
+
+While disaggregated Prefill-Decode (PD) architectures~\cite{splitwise, distserve, dejavu, mooncake} have become the standard approach to mitigate cross-phase interference, they introduce new challenges in PP scenarios.
+
+Existing systems widely employ bulk transmission, deferring KV cache transfer until the entire Prefill phase completes to maximize bandwidth utilization.
+However, under Pipeline Parallelism, this mechanism forces early stages (e.g., Stage 0) to passively wait for all subsequent stages to finish before they can transmit and release their local KV cache.
+Under bursty traffic conditions, large micro-batches exhaust early-stage memory resources.
+Since the KV cache is held until the end of the pipeline, subsequent micro-batches are starved of resources, forcing the pipeline to stall and creating massive bubbles.
+
+Furthermore, PP inherently fragments the KV cache across stages, transforming the traditional simple point-to-point communication into a complex stage-to-stage routing.
+Each Prefill stage generates only its assigned layers' KV cache slice, and each Decode stage requires only the slice corresponding to its assigned layers.
+This many-to-many routing pattern poses significant management challenges and threatens system robustness.
 
 \begin{figure}[h]
     \centering
@@ -227,13 +245,21 @@ Furthermore, PP fragments the KV cache across stages, complicating the stage-to-
     \label{fig:kv-accumulation}
 \end{figure}
 
-\subsubsection{Computational Imbalance from Dynamic Sequence Lengths}
+\subsubsection{Request-Variability Imbalance}
 
-The massive variance in request lengths in online inference makes it difficult to align micro-batch execution times.
-While schedulers like Sarathi-Serve employ Chunked Prefill to balance workloads by limiting token counts, this approach assumes a linear relationship between token count and execution time.
-This assumption fails to account for the $O(S^2)$ complexity of Attention mechanisms and the cumulative impact of KV cache from previous chunks.
-Our experiments indicate that for a 128k sequence, the execution time of the final 8k chunk can be significantly longer than the first.
-Existing solutions using dynamic programming~\cite{terapipe} incur high computational complexity ($O(mnl^2)$) and are difficult to apply to varying request lengths, while FLOPs-based empirical formulas often fail to capture the actual execution time variations introduced by operator-level optimizations like FlashAttention~\cite{flashattention}.
+The massive variance in request lengths makes it difficult to align micro-batch execution times, introducing further pipeline bubbles.
+Existing schedulers (e.g., Sarathi-Serve~\cite{sarathi}) employ Chunked Prefill to mitigate this by chunking long requests into smaller pieces and limiting the total token count per micro-batch.
+However, such token-budget-based methods assume a linear relationship between execution time and token count, fundamentally overlooking the $O(S^2)$ quadratic complexity of attention mechanisms.
+
+As sequence length increases, quadratic attention computation becomes dominant.
+Since subsequent chunks must attend to the KV cache of all preceding chunks, the computational overhead grows progressively~\cite{DuetServe}.
+This progressive increase in chunk execution time causes token-based scheduling to suffer from severe pipeline bubbles when handling long-context requests.
+
+Existing solutions face significant limitations.
+Dynamic programming approaches~\cite{terapipe} can theoretically optimize chunk sizes for balanced execution times, but they incur high computational complexity ($O(mnl^2)$) and are difficult to apply to varying request lengths in real-time inference scenarios.
+FLOPs-based empirical formulas attempt to estimate execution time through computational cost modeling, but they only account for theoretical computation while overlooking memory access and communication overhead.
+Furthermore, these formulas rely on theoretical FLOPs values, which may deviate significantly from actual execution costs due to varying operator implementations, such as FlashAttention~\cite{flashattention}.
+These optimizations can significantly alter the relationship between theoretical FLOPs and actual wall-clock time, rendering simple formulas inaccurate.
 
 \begin{figure}[h]
     \centering
@@ -255,7 +281,7 @@ Existing solutions using dynamic programming~\cite{terapipe} incur high computat
 % ==========================================
 \section{Research Methodology}
 
-In this section, we present the detailed system design of \sys.
+In this section, we present the preliminary system design of \sys.
 We first provide an overview of the system architecture, followed by an in-depth description of the three core techniques developed to address the multi-dimensional load imbalance in pipeline-parallel LLM inference.
 
 \subsection{System Overview}
