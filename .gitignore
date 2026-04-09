@@ -1,4 +1,6 @@
 *.pdf
+ref_files/
+old_versions/
 
 # latex
 *.aux
@@ -8,6 +10,8 @@
 *.synctex.gz
 *.bbl
 *.blg
+*.fls
+*.fdb_latexmk
 
 # mac
 *.DS_Store
