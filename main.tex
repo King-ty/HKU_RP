@@ -18,6 +18,8 @@
 \usepackage{setspace}
 \usepackage{microtype}
 \usepackage{enumitem}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
 \usepackage[numbers]{natbib}
 
@@ -265,7 +267,7 @@ Naive partitioning by layer count inevitably leads to severe workload imbalances
 A more significant challenge arises from MTP~\cite{eagle,deepseekv3}, as shown in Figure~\ref{fig:mtp-integration}.
 MTP is a training-inference co-designed speculative decoding paradigm that is becoming the new industry standard for high-throughput inference.
 MTP modules deeply share weights with the base model's Embedding and LM Head.
-Recent PP studies likewise show that output-side post-processing or vocabulary-related computation can distort stage balance~\cite{vocabparallel,dynapipe}, but MTP introduces an additional cross-stage dependency between the shared Embedding and LM Head.%TODO: 这句话有点莫名其妙，paper中有写过这种东西吗？
+Recent PP studies likewise show that output-side post-processing or vocabulary-related computation can distort stage balance~\cite{vocabparallel,dynapipe}, but MTP introduces an additional cross-stage dependency between the shared Embedding and LM Head.
 In naive PP, placing the Embedding at Stage~0 and the LM Head at Stage~$N{-}1$ forces intermediate activations to ``round-trip'' across the cluster, incurring additional inter-stage communication.
 This mutual dependency also stalls intermediate stages during MTP computation, introducing structural imbalance bubbles as these stages remain idle.
 
@@ -460,32 +462,41 @@ Each RLS update requires only $O(k^2)$ computation where $k{=}5$ is the number o
 \subsubsection{Time-Budget Scheduling Algorithm}
 
 \Timesched achieves pipeline balance by enforcing a strict temporal constraint, $T_{\mathrm{budget}}$, on each micro-batch, ensuring uniform execution times across stages regardless of the non-linear attention cost.
-Table~\ref{tab:scheduling-algorithm} shows the scheduling procedure.
+Algorithm~\ref{alg:scheduling} presents the scheduling procedure.
 Unlike traditional token-budget schedulers that assume a linear time-token relationship, \sys directly constrains execution time: when a request's estimated cost exceeds the remaining budget, the scheduler reverse-calculates the maximum allowable chunk size $x_i$ by solving the quadratic inequality $T_{\mathrm{est}} \le B$.
 
-% TODO: 这个表格还是改成算法比较好
-\begin{table}[!htbp]
-\centering
-\caption{Computation-aware scheduling with a time-budget constraint.}
-\label{tab:scheduling-algorithm}
-\begin{tabular}{p{0.08\textwidth}p{0.84\textwidth}}
-\toprule
-\textbf{Step} & \textbf{Operation} \\
-\midrule
-1 & Initialize coefficients $\Theta=(a,b,c,d,e)$ via startup profiling and set the maximum micro-batch budget $T_{\mathrm{budget}}$. \\
-2 & For each scheduling step, initialize an empty micro-batch $\mathcal{M}$ and set the remaining budget $B \gets T_{\mathrm{budget}}$. \\
-3 & Pop the next request $r_i$ with remaining length $l_i$ and context length $y_i$, then estimate $T_{\mathrm{est}} = a l_i^2 + b l_i y_i + c l_i + d y_i + e$. \\
-4 & If $T_{\mathrm{est}} \leq B$, append the full remaining request chunk to $\mathcal{M}$ and update $B \gets B - T_{\mathrm{est}}$. \\
-5 & Otherwise, compute the largest feasible chunk length
-$x_i = \left\lfloor \frac{-(b y_i+c)+\sqrt{(b y_i+c)^2-4a(dy_i+e-B)}}{2a} \right\rfloor$,
-append $\mathrm{chunk}(r_i,x_i)$ to $\mathcal{M}$, and push the residual request back into the queue. \\
-6 & Execute $\mathcal{M}$ on the pipeline and optionally update $\Theta$ with the observed latency via RLS. \\
-\bottomrule
-\end{tabular}
-\end{table}
+\begin{algorithm}[!htbp]
+\caption{Computation-Aware Scheduling with Time-Budget Constraint}
+\label{alg:scheduling}
+\begin{algorithmic}[1]
+\Require Request queue $\mathcal{Q}$; time budget $T_{\mathrm{budget}}$; cost-model coefficients $\Theta = (a, b, c, d, e)$ initialized via offline profiling
+\While{true} \Comment{Each iteration is one scheduling step}
+    \State $\mathcal{M} \leftarrow \emptyset$
+    \State $B \leftarrow T_{\mathrm{budget}}$
+    \While{$\mathcal{Q}$ is not empty \textbf{and} $B > 0$}
+        \State Pop request $r_i$ with remaining length $l_i$ and context length $y_i$
+        \State $T_{\mathrm{est}} \leftarrow a l_i^2 + b l_i y_i + c l_i + d y_i + e$
+        \If{$T_{\mathrm{est}} \le B$}
+            \State $x_i \leftarrow l_i$
+            \State $B \leftarrow B - T_{\mathrm{est}}$
+        \Else \Comment{Reverse-calculate max chunk size}
+            \State $\Delta \leftarrow (b y_i + c)^2 - 4a(d y_i + e - B)$
+            \State $x_i \leftarrow \left\lfloor \frac{-(b y_i + c) + \sqrt{\Delta}}{2a} \right\rfloor$
+            \State Update $r_i$'s remaining length to $l_i - x_i$; push $r_i$ back to $\mathcal{Q}$
+            \State $B \leftarrow 0$
+        \EndIf
+        \State $\mathcal{M} \leftarrow \mathcal{M} \cup \{ \text{chunk}(r_i, x_i) \}$
+    \EndWhile
+    \State Execute micro-batch $\mathcal{M}$ on pipeline
+    \If{online adaptation is enabled}
+        \State Record actual latency $T_{\mathrm{actual}}$
+        \State Update $\Theta$ via RLS with $(\mathcal{M}, T_{\mathrm{actual}})$
+    \EndIf
+\EndWhile
+\end{algorithmic}
+\end{algorithm}
 
-The budget $T_{\mathrm{budget}}$ is empirically set to the execution time of a zero-context micro-batch that saturates the available HBM capacity, and can be further calibrated to the hardware's compute saturation point, which effectively upper-bounds micro-batch cost and avoids out-of-memory failures under normal operating conditions.
-% TODO: 上面这句话先说占满HBM，再说计算饱和点，然后又说防止oom，这就不连续。改！
+The time budget hyperparameter $T_{\mathrm{budget}}$ is empirically set to the execution time of a zero-context request that saturates the available HBM capacity, which effectively upper-bounds micro-batch cost and avoids out-of-memory failures under normal operating conditions.
 
 By explicitly modeling execution time rather than relying on token counts, \sys achieves balanced micro-batch execution times even under highly variable request lengths, minimizing the accumulated pipeline bubbles that typically plague long-context inference.
 
@@ -494,8 +505,7 @@ By explicitly modeling execution time rather than relying on token counts, \sys 
 % ==========================================
 \section{Preliminary Evaluation}
 
-This section reports the initial validation experiments for \sys, focusing on end-to-end throughput improvements, pipeline efficiency, and robustness under strict latency SLOs.
-% TODO: 以上这一段要refine
+This section reports the initial validation of \sys on the NPU-based OmniInfer deployment.
 
 \subsection{Experimental Setup}
 
@@ -517,8 +527,7 @@ Unless otherwise stated, all systems are evaluated under the same 32-NPU hardwar
 \textbf{Workloads and metrics.}
 We evaluated under four workload configurations: short-context fixed (2K), short-context variable (2K), long-context fixed (32K), and long-context variable (32K).
 The fixed-length workloads serve as controlled stress tests in which all requests share the same context budget.
-The variable-length workloads replay a shared request trace with naturally varying prompt and generation lengths; all systems process the same request sequence in the same order under the same latency SLO target, so the comparison is not affected by workload skew.
-% TODO: 上面这句话胡说八道，变长数据集跟share无关。
+The variable-length workloads use synthetic traces with naturally varying prompt and generation lengths, including long-tail requests that stress the scheduler's ability to balance micro-batches.
 The primary metric is end-to-end throughput under strict latency SLO constraints.
 We also measure pipeline bubble ratio and verify model correctness on HumanEval~\cite{human-eval}.
 
@@ -608,58 +617,29 @@ OmniInfer (without PP) & \humanevalpass \\
 % ==========================================
 % 5 Related Work
 % ==========================================
-% TODO: Related work写太多了，参考paper压缩一下
 \section{Related Work}
 
-\paragraph{Parallelism strategies for distributed inference.}
-Distributed LLM inference employs several complementary parallelization strategies, each with distinct communication--computation tradeoffs.
-Data parallelism replicates the full model across devices to scale throughput but cannot address the fundamental problem of a single replica exceeding one node's memory.
-Tensor parallelism~\cite{megatron} partitions weight matrices within each layer, requiring layer-wise All-Reduce collectives whose cost scales linearly with model depth and grows prohibitively across nodes.
-Automated hybrid partitioners such as Alpa~\cite{alpa} search over TP and PP configurations jointly but target training workloads with uniform micro-batches.
-Early inference systems further validate the practicality of model parallelism for serving~\cite{deepspeed-inference,energonai,alpaserve}.
-Expert parallelism~\cite{deepseekv3,cloudmatrix384} distributes MoE experts across devices, achieving good load balance when expert popularity is uniform; however, its layer-wise All-to-All dispatch remains communication-intensive and is sensitive to expert-load skew.
-Context parallelism~\cite{ringattention,loongserve} partitions tokens along the sequence dimension across devices to handle long contexts, but it is orthogonal to weight partitioning and still incurs substantial inter-device \kvcache exchange.
-Note that CP differs from Sequence Parallelism (SP)~\cite{megatron-sp}, which partitions activations along the sequence dimension \emph{within} tensor-parallel groups to reduce activation memory; SP is tightly coupled with TP and does not address cross-node communication.
-Pipeline parallelism~\cite{gpipe,pipedream,terapipe} instead transfers only stage-boundary activations, making it especially attractive when cross-node bandwidth is limited.
-Our work builds on PP's communication advantage and focuses on the inference-specific question that prior parallelization work leaves open: how to keep PP balanced and efficient under online, heterogeneous LLM workloads with PD disaggregation and MTP.
-
 \paragraph{Pipeline parallelism and its optimization.}
-A substantial body of work studies PP scheduling and bubble reduction in the training setting.
-GPipe~\cite{gpipe} introduced synchronous micro-batch pipelining; PipeDream~\cite{pipedream} relaxed synchronization for higher throughput; TeraPipe~\cite{terapipe} proposed token-level pipelining with dynamic-programming-based chunk balancing; and Zero-Bubble PP~\cite{zerobubble} achieved near-zero bubbles by splitting backward passes and interleaving computation.
-Recent work further shows that special layers such as vocabulary projections can themselves become dominant PP bottlenecks~\cite{vocabparallel}.
-These methods provide important algorithmic foundations but assume homogeneous micro-batches with fixed sizes---an assumption that breaks down in inference, where \Prefillterm and \Decodeterm exhibit fundamentally different computational profiles and request lengths vary dynamically.
-Among inference-oriented systems, Seesaw~\cite{seesaw} revisits PP for LLM serving by dynamically re-sharding the model so that \Prefillterm and \Decodeterm can use different parallelization strategies.
-Other recent works address complementary aspects: gLLM~\cite{gllm} throttles tokens for \Prefillterm/\Decodeterm balance, TD-Pipe~\cite{tdpipe} temporally disaggregates phases, DynaPipe~\cite{dynapipe} dynamically redistributes layers, and SiPipe~\cite{sipipe} leverages CPU/GPU cooperation.
-However, none of these systems jointly tackles the three runtime bottlenecks that persist \emph{within} a PP configuration: stage imbalance introduced by MTP co-execution, phase interference caused by stage-partitioned \kvcache transfer, and request-level variance caused by quadratic attention complexity.
-\sys keeps PP as the primary cross-node execution abstraction and directly mitigates all three bottlenecks through online co-design with MTP, PD disaggregation, and \timesched.
+Tensor parallelism~\cite{megatron}, expert parallelism~\cite{deepseekv3,cloudmatrix384}, and context parallelism~\cite{ringattention,loongserve} partition models along different dimensions but all introduce heavy per-layer cross-node communication (All-Reduce, All-to-All, or KV Cache).
+Pipeline parallelism~\cite{gpipe} transfers only stage-boundary hidden states, making it attractive when inter-node bandwidth is limited.
+Training-era PP scheduling---from GPipe's synchronous micro-batching~\cite{gpipe} through PipeDream's relaxed synchronization~\cite{pipedream}, TeraPipe's DP-based chunking~\cite{terapipe}, and Zero-Bubble's split-backward interleaving~\cite{zerobubble}---assumes homogeneous, fixed-size micro-batches, an assumption that breaks down in inference.
+Inference-oriented works revisit PP with dynamic re-sharding (Seesaw~\cite{seesaw}), token throttling (gLLM~\cite{gllm}), temporal phase disaggregation (TD-Pipe~\cite{tdpipe}), layer redistribution (DynaPipe~\cite{dynapipe}), and CPU/GPU cooperation (SiPipe~\cite{sipipe}), but none jointly addresses the three categories of imbalance bubbles.
 
 \paragraph{Serving runtimes and scheduling.}
-Modern serving systems have introduced a series of scheduling and memory-management innovations to improve LLM throughput and latency.
-Orca~\cite{orca} pioneered iteration-level scheduling with continuous batching.
-vLLM~\cite{vllm} introduced PagedAttention for efficient \kvcache memory management.
-Sarathi-Serve~\cite{sarathi} proposed chunked prefill to co-locate short decode steps alongside prefill chunks, improving GPU utilization.
-FastServe~\cite{fastserve} applied iteration-level preemptive scheduling with proactive \kvcache offloading to reduce inference latency.
-Llumnix~\cite{llumnix} explored live migration of requests across instances for cluster-level load balancing.
-SGLang~\cite{sglang} introduced RadixAttention for \kvcache reuse and efficient structured output decoding.
-These systems substantially improve single-instance or cluster-level efficiency, but their scheduling policies assume a roughly linear relationship between token count and execution time.
-Concurrently, the SGLang team explored chunked pipeline parallelism with a dynamic chunking mechanism that progressively reduces chunk sizes based on a univariate quadratic runtime model~\cite{sglang-pp-blog}.
-While sharing the high-level insight that attention's quadratic complexity invalidates fixed-size chunking, their work focuses on chunking a single long-context request through the prefill pipeline, whereas \sys jointly schedules multiple concurrent requests with heterogeneous lengths into balanced micro-batches and replaces token budgets with explicit time budgets derived from a bivariate quadratic cost model.
+Modern serving systems~\cite{orca,vllm,sarathi,fastserve,llumnix,sglang} have advanced scheduling and memory management through continuous batching, paged \kvcache, and chunked prefill, but their schedulers assume a linear relationship between token count and execution time.
 
 \paragraph{Prefill-Decode disaggregation and KV cache management.}
-Separating \Prefillterm and \Decodeterm onto dedicated hardware pools has emerged as a standard approach to eliminate cross-phase interference.
-Splitwise~\cite{splitwise} and DistServe~\cite{distserve} independently proposed PD disaggregation, demonstrating significant goodput improvements.
-Subsequent systems extended this paradigm: D\'{e}j\`{a}Vu~\cite{dejavu} introduced \kvcache streaming for fault tolerance, Mooncake~\cite{mooncake} designed a KV-cache-centric disaggregated architecture, MemServe~\cite{memserve} unified context caching with disaggregation through an elastic memory pool, P/D-Serve~\cite{pdserve} scaled disaggregated serving to tens of thousands of devices, TetriInfer~\cite{tetriinfer} optimized mixed-workload disaggregation, and FlowKV~\cite{flowkv} accelerated \kvcache transfer through optimized communication scheduling.
-InfiniGen~\cite{infinigen} and CloudMatrix384~\cite{cloudmatrix384} further advanced \kvcache management with speculative prefetching and hardware-aware transfer, respectively.
-However, these systems universally assume simple point-to-point \kvcache transfer paths between \Prefillterm and \Decodeterm instances.
-When PP is introduced, \kvcache becomes stage-partitioned, transforming point-to-point transfers into complex many-to-many routing---a challenge that \sys addresses through \slicedkv and \stagekv.
+Splitwise~\cite{splitwise} and DistServe~\cite{distserve} proposed PD disaggregation to isolate the compute-bound \Prefillterm from the memory-bound \Decodeterm phase.
+Subsequent work extended this paradigm along multiple dimensions~\cite{dejavu,mooncake,memserve,pdserve,tetriinfer,flowkv,infinigen,cloudmatrix384}.
+However, none of these systems address the challenges introduced when PD disaggregation is combined with PP: \Prefillterm-side \kvcache accumulation caused by deferred bulk transmission, and the complex stage-to-stage routing required for stage-partitioned \kvcache transfer.
+\sys addresses both challenges through \slicedkv and \stagekv, which strikes a balance between bulk and layer-wise transfer by transmitting at stage granularity.
 
 \paragraph{Speculative decoding and MTP-aware inference.}
-Speculative decoding accelerates auto-regressive generation by drafting multiple candidate tokens in parallel and verifying them against the target model in a single forward pass.
-EAGLE~\cite{eagle} introduced feature-uncertainty-aware drafting, Medusa~\cite{medusa} attached lightweight parallel decoding heads to the base model, and SpecInfer~\cite{specinfer} organized candidate tokens into a tree structure for efficient parallel verification.
-Multi-Token Prediction (MTP), as adopted by DeepSeek-V3~\cite{deepseekv3} and DeepSeek-R1~\cite{deepseek-r1}, co-designs the training objective with inference-time speculation, and production systems such as OmniInfer~\cite{omniinfer} and CloudMatrix384~\cite{cloudmatrix384} have demonstrated substantial throughput gains from MTP integration.
-Despite this progress, prior work universally treats MTP as a decoding-side acceleration technique, assuming that all MTP components reside on a single device.
-Once PP is introduced, MTP becomes a stage-placement and synchronization problem: the shared Embedding and LM Head weights are dispersed across the first and last pipeline stages, creating additional communication paths and idle stages.
-\sys addresses this gap by co-designing MTP placement with stage partitioning, consolidating all MTP computation into a single stage and incorporating multi-round MTP overhead into the partitioning objective.
+Speculative decoding accelerates auto-regressive generation by drafting multiple candidate tokens and verifying them in a single forward pass~\cite{eagle,medusa,specinfer}.
+Multi-Token Prediction (MTP)~\cite{mtp,deepseekv3,eagle} co-designs the training objective with inference-time speculation, and production systems~\cite{omniinfer,cloudmatrix384} have demonstrated substantial throughput gains from MTP integration.
+However, prior work universally treats MTP as a decoding-only acceleration technique without considering its interaction with PP.
+Once PP is introduced, MTP becomes a stage-placement and synchronization problem: the shared Embedding and LM Head weights are dispersed across pipeline stages, creating additional communication paths and idle stages.
+\sys addresses this gap by consolidating all MTP computation into a single stage and incorporating multi-round MTP overhead into the partitioning objective.
 
 % ==========================================
 % 6 Future Work
