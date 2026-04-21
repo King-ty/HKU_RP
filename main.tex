@@ -40,6 +40,7 @@
 
 \setstretch{1.15}
 \captionsetup{font=small,labelfont=bf}
+\captionsetup[algorithm]{font=small,labelfont=bf}
 \urlstyle{same}
 
 \setcounter{tocdepth}{2}
@@ -68,6 +69,21 @@
 \titlespacing*{\section}{0pt}{2.2ex plus 0.8ex minus 0.2ex}{1.0ex plus 0.2ex}
 \titlespacing*{\subsection}{0pt}{1.7ex plus 0.6ex minus 0.2ex}{0.7ex plus 0.2ex}
 \titlespacing*{\subsubsection}{0pt}{1.3ex plus 0.4ex minus 0.2ex}{0.5ex plus 0.2ex}
+
+% Less conservative float placement keeps long algorithms near the text
+% instead of pushing them onto isolated float pages.
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.82}
+\setcounter{topnumber}{5}
+\setcounter{bottomnumber}{3}
+\setcounter{totalnumber}{7}
+\makeatletter
+\setlength{\@fptop}{0pt}
+\setlength{\@fpsep}{8pt plus 1fil}
+\setlength{\@fpbot}{0pt plus 1fil}
+\makeatother
 
 % Terminology macros.
 \newcommand{\sys}{\textsc{PipeInfer}\xspace}
@@ -101,6 +117,7 @@
 \newcommand{\omnigain}{9.47\%\xspace}
 \newcommand{\bubblecap}{5\%\xspace}
 \newcommand{\humanevalpass}{91.78\%\xspace}
+\newcommand{\humanevalpassvalue}{91.78\xspace}
 
 % Proposal metadata.
 \newcommand{\proposaluniversity}{The University of Hong Kong}
@@ -146,22 +163,34 @@
     \vspace{1.6cm}
 
     {\large \bfseries \proposaltype\par}
-    \vspace{0.75cm}
-    {\LARGE \bfseries \sys: A Pipeline-Balanced High-Performance System for LLM Inference\par}
+    \vspace{0.8cm}
 
-    \vspace{1.4cm}
+    \rule{0.86\textwidth}{0.6pt}
+    \vspace{0.45cm}
 
-    \begin{tabularx}{0.72\textwidth}{>{\bfseries}l X}
-        Candidate: & \proposalauthor \\
-        Student ID: & \proposalstudentid \\
-        Supervisor: & \proposalsupervisor \\
-        Submission Date: & \proposaldate \\
-    \end{tabularx}
+    \begin{minipage}{0.88\textwidth}
+        \centering
+        {\LARGE \bfseries \sys: A Pipeline-Balanced High-Performance System for LLM Inference\par}
+    \end{minipage}
+
+    \vspace{0.45cm}
+    \rule{0.86\textwidth}{0.6pt}
 
     \vfill
 
-    \noindent
-    \begin{tabularx}{0.9\textwidth}{>{\bfseries}l X}
+    \begin{center}
+    \large
+    \begin{tabular}{>{\bfseries}r@{\hspace{0.9em}}l}
+        Candidate: & \proposalauthor \\[0.35em]
+        Student ID: & \proposalstudentid \\[0.35em]
+        Supervisor: & \proposalsupervisor \\[0.35em]
+        Submission Date: & \proposaldate \\
+    \end{tabular}
+    \end{center}
+
+    \vspace{0.75cm}
+
+    \begin{tabularx}{0.82\textwidth}{>{\bfseries}l X}
         Supervisor's Signature: & \hrulefill \\
     \end{tabularx}
 \end{titlepage}
@@ -561,7 +590,8 @@ Each RLS update requires only $O(k^2)$ computation where $k{=}5$ is the number o
 Algorithm~\ref{alg:scheduling} presents the scheduling procedure.
 Unlike traditional token-budget schedulers that assume a linear time-token relationship, \sys directly constrains execution time: when a request's estimated cost exceeds the remaining budget, the scheduler reverse-calculates the maximum allowable chunk size $x_i$ by solving the quadratic inequality $T_{\mathrm{est}} \le B$.
 
-\begin{algorithm}[!htbp]
+\begin{algorithm}[!tbp]
+\small
 \caption{Computation-Aware Scheduling with Time-Budget Constraint}
 \label{alg:scheduling}
 \begin{algorithmic}[1]
@@ -704,8 +734,8 @@ This confirms that our techniques introduce no accuracy degradation while delive
 \textbf{System} & \textbf{Pass@1-COT (\%)} \\
 \midrule
 vLLM-Ascend & 91.83 \\
-OmniInfer (without PP) & \humanevalpass \\
-\sys & \humanevalpass \\
+OmniInfer (without PP) & \humanevalpassvalue \\
+\sys & \humanevalpassvalue \\
 \bottomrule
 \end{tabular}
 \end{table}
