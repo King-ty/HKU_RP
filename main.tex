@@ -237,7 +237,7 @@ Pipeline bubbles can be categorized into two types: \textbf{inherent bubbles} an
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{pics/2-bubble-types.pdf}
+    \includegraphics[width=0.7\textwidth]{pics/2-bubble-types.pdf}
     \caption{Two pipeline bubble types: \textbf{inherent bubbles} arise during warm-up and cool-down, while \textbf{imbalance bubbles} persist throughout steady-state execution.}
     \label{fig:2bubbetypes}
 \end{figure}
@@ -278,7 +278,7 @@ This removes MTP round-trip communication and leaves only the ordinary forward d
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{pics/mtp-solu.pdf}
+    \includegraphics[width=0.95\textwidth]{pics/mtp-solu.pdf}
     \caption{MTP integration under pipeline parallelism. The naive design (left) introduces extra communication and idle stages, whereas \sys's centralized design (right) consolidates all MTP computation into the final stage, eliminating cross-stage MTP communication.}
     \label{fig:mtp-integration}
 \end{figure}
@@ -303,7 +303,7 @@ This many-to-many routing pattern poses significant management challenges and th
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.78\textwidth]{pics/KV-stack.pdf}
+    \includegraphics[width=0.75\textwidth]{pics/KV-stack.pdf}
     \caption{KV cache accumulation in PP-based PD disaggregation. Bulk transmission defers \kvcache transfer until the entire \prefillterm pipeline completes, forcing early stages to hold KV caches of all in-flight micro-batches.}
     \label{fig:kv-accumulation}
 \end{figure}
@@ -325,7 +325,7 @@ Furthermore, these formulas rely on theoretical FLOPs values, which may deviate 
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.78\textwidth]{pics/sarathi-bubble.pdf}
+    \includegraphics[width=0.75\textwidth]{pics/sarathi-bubble.pdf}
     \caption{Failure of token-budget scheduling for long-context requests. Quadratic attention makes later chunks progressively more expensive even under the same token budget.}
     \label{fig:sarathi-bubble}
 \end{figure}
@@ -348,7 +348,7 @@ Finally, \sys incorporates \Timesched (Section~\ref{sec:scheduling}) to address 
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.95\textwidth]{pics/overview.pdf}
+    \includegraphics[width=0.99\textwidth]{pics/overview.pdf}
     \caption{System overview of \sys. \sys combines disaggregated \Prefillterm-\Decodeterm clusters, \centralmtp, stage-wise \kvcache transfer, and \timesched to address all three dimensions of pipeline imbalance.}
     \label{fig:overview}
 \end{figure}
@@ -427,7 +427,7 @@ It ensures that the \kvcache transmission flow is pipelined alongside the comput
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{pics/stage-wise-kv.pdf}
+    \includegraphics[width=0.55\textwidth]{pics/stage-wise-kv.pdf}
     \caption{\Slicedkv and \stagekv. Each stage independently manages and transfers its own \kvcache slice, eliminating the accumulation bottleneck of conventional bulk transmission.}
     \label{fig:stage-wise-kv}
 \end{figure}
@@ -550,13 +550,13 @@ The performance gap between \sys and the baselines widens under variable-length 
 
 \begin{figure}[!htbp]
     \centering
-    \begin{subfigure}{0.48\textwidth}
+    \begin{subfigure}{0.42\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_2k_fixed.pdf}
         \caption{2K fixed-length}
     \end{subfigure}
     \hfill
-    \begin{subfigure}{0.48\textwidth}
+    \begin{subfigure}{0.42\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_2k_var.pdf}
         \caption{2K variable-length}
@@ -564,13 +564,13 @@ The performance gap between \sys and the baselines widens under variable-length 
 
     \vspace{0.25cm}
 
-    \begin{subfigure}{0.48\textwidth}
+    \begin{subfigure}{0.42\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_32k_fixed.pdf}
         \caption{32K fixed-length}
     \end{subfigure}
     \hfill
-    \begin{subfigure}{0.48\textwidth}
+    \begin{subfigure}{0.42\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_32k_var.pdf}
         \caption{32K variable-length}
@@ -587,7 +587,7 @@ This indicates that the three mechanisms act synergistically: \overheadpartition
 
 \begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.72\textwidth]{pics/nobubble.pdf}
+    \includegraphics[width=0.55\textwidth]{pics/nobubble.pdf}
     \caption{Pipeline bubble analysis. \sys maintains balanced micro-batch execution times and keeps the bubble ratio below \bubblecap across all workload configurations.}
     \label{fig:bubble-analysis}
 \end{figure}
@@ -626,7 +626,10 @@ Training-era PP scheduling---from GPipe's synchronous micro-batching~\cite{gpipe
 Inference-oriented works revisit PP with dynamic re-sharding (Seesaw~\cite{seesaw}), token throttling (gLLM~\cite{gllm}), temporal phase disaggregation (TD-Pipe~\cite{tdpipe}), layer redistribution (DynaPipe~\cite{dynapipe}), and CPU/GPU cooperation (SiPipe~\cite{sipipe}), but none jointly addresses the three categories of imbalance bubbles.
 
 \paragraph{Serving runtimes and scheduling.}
-Modern serving systems~\cite{orca,vllm,sarathi,fastserve,llumnix,sglang} have advanced scheduling and memory management through continuous batching, paged \kvcache, and chunked prefill, but their schedulers assume a linear relationship between token count and execution time.
+Orca and vLLM establish the runtime foundation for online LLM serving through iteration-level scheduling, continuous batching, and paged \kvcache management~\cite{orca,vllm}.
+Sarathi-Serve and FastServe further improve request scheduling with chunked prefill and preemptive scheduling, while Llumnix and SGLang optimize runtime orchestration for dynamic serving workloads~\cite{sarathi,fastserve,llumnix,sglang}.
+However, these systems primarily schedule work using token budgets or request-level heuristics, without modeling the non-linear execution cost of long-context attention or its impact on PP stage balance.
+\sys complements these serving-runtime techniques with \timesched, which directly budgets estimated execution time to reduce \requestimb-induced pipeline bubbles.
 
 \paragraph{Prefill-Decode disaggregation and KV cache management.}
 Splitwise~\cite{splitwise} and DistServe~\cite{distserve} proposed PD disaggregation to isolate the compute-bound \Prefillterm from the memory-bound \Decodeterm phase.
