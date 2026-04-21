@@ -1,16 +1,21 @@
 \documentclass[12pt,a4paper]{article}
 
+\ifdefined\pdfminorversion
+    \pdfminorversion=7
+\fi
+
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage{times}
+\usepackage{newtxtext,newtxmath}
 \usepackage{geometry}
-\geometry{a4paper, margin=1in}
+\geometry{a4paper, margin=1in, headheight=15pt, headsep=18pt}
 \usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{url}
 \usepackage{amsmath}
-\usepackage{amssymb}
 \usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
 \usepackage[dvipsnames]{xcolor}
 \usepackage{xspace}
 \usepackage{caption}
@@ -20,6 +25,9 @@
 \usepackage{enumitem}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[section]{placeins}
 
 \usepackage[numbers]{natbib}
 
@@ -32,6 +40,34 @@
 
 \setstretch{1.15}
 \captionsetup{font=small,labelfont=bf}
+\urlstyle{same}
+
+\setcounter{tocdepth}{2}
+\setcounter{secnumdepth}{3}
+\setlength{\parindent}{1.25em}
+\setlength{\parskip}{0pt plus 0.2pt}
+\setlist[itemize]{leftmargin=*,topsep=0.35em,itemsep=0.2em,parsep=0pt}
+\setlist[enumerate]{leftmargin=*,topsep=0.35em,itemsep=0.2em,parsep=0pt}
+\renewcommand{\arraystretch}{1.12}
+
+\titleformat{\section}
+    {\normalfont\Large\bfseries}
+    {\thesection}
+    {0.75em}
+    {}
+\titleformat{\subsection}
+    {\normalfont\large\bfseries}
+    {\thesubsection}
+    {0.65em}
+    {}
+\titleformat{\subsubsection}
+    {\normalfont\normalsize\bfseries}
+    {\thesubsubsection}
+    {0.6em}
+    {}
+\titlespacing*{\section}{0pt}{2.2ex plus 0.8ex minus 0.2ex}{1.0ex plus 0.2ex}
+\titlespacing*{\subsection}{0pt}{1.7ex plus 0.6ex minus 0.2ex}{0.7ex plus 0.2ex}
+\titlespacing*{\subsubsection}{0pt}{1.3ex plus 0.4ex minus 0.2ex}{0.5ex plus 0.2ex}
 
 % Terminology macros.
 \newcommand{\sys}{\textsc{PipeInfer}\xspace}
@@ -66,6 +102,31 @@
 \newcommand{\bubblecap}{5\%\xspace}
 \newcommand{\humanevalpass}{91.78\%\xspace}
 
+% Proposal metadata.
+\newcommand{\proposaluniversity}{The University of Hong Kong}
+\newcommand{\proposaldepartment}{Department of Computer Science}
+\newcommand{\proposalfaculty}{Faculty of Engineering}
+\newcommand{\proposaltype}{Research Proposal}
+\newcommand{\proposalauthor}{Yu TIAN}
+\newcommand{\proposalstudentid}{3030102785}
+\newcommand{\proposalsupervisor}{Prof. Heming Cui}
+\newcommand{\proposaldate}{\today}
+
+\fancypagestyle{proposal}{
+    \fancyhf{}
+    \fancyhead[L]{Research Proposal}
+    \fancyhead[R]{\textsc{PipeInfer}}
+    \fancyfoot[C]{\thepage}
+    \renewcommand{\headrulewidth}{0.4pt}
+    \renewcommand{\footrulewidth}{0pt}
+}
+\fancypagestyle{frontmatter}{
+    \fancyhf{}
+    \fancyfoot[C]{\thepage}
+    \renewcommand{\headrulewidth}{0pt}
+    \renewcommand{\footrulewidth}{0pt}
+}
+
 \begin{document}
 \hypersetup{pageanchor=false}
 
@@ -74,44 +135,46 @@
 % ==========================================
 \begin{titlepage}
     \centering
-    \vspace*{1.6cm}
+    \thispagestyle{empty}
+    \vspace*{1.1cm}
 
-    {\Large \textbf{THE UNIVERSITY OF HONG KONG}\par}
-
-    \vspace{2.1cm}
-
-    {\Large \textbf{Research Proposal}\par}
-    \vspace{0.8cm}
-    {\LARGE \textbf{\sys: A Pipeline-Balanced High-Performance System for LLM Inference}\par}
-
-    \vspace{2.3cm}
-
-    {\large \textbf{Yu TIAN} \\ Student ID: 3030102785\par}
+    {\Large \bfseries \MakeUppercase{\proposaluniversity}\par}
+    \vspace{0.25cm}
+    {\large \proposaldepartment\par}
+    {\large \proposalfaculty\par}
 
     \vspace{1.6cm}
 
-    {\large Supervisor: Prof. Heming Cui\par}
+    {\large \bfseries \proposaltype\par}
+    \vspace{0.75cm}
+    {\LARGE \bfseries \sys: A Pipeline-Balanced High-Performance System for LLM Inference\par}
+
+    \vspace{1.4cm}
+
+    \begin{tabularx}{0.72\textwidth}{>{\bfseries}l X}
+        Candidate: & \proposalauthor \\
+        Student ID: & \proposalstudentid \\
+        Supervisor: & \proposalsupervisor \\
+        Submission Date: & \proposaldate \\
+    \end{tabularx}
 
     \vfill
 
-    \begin{flushleft}
-    \large Supervisor's Signature: \hrulefill
-    \end{flushleft}
-
-    \vspace{1.0cm}
-    {\large \today\par}
+    \noindent
+    \begin{tabularx}{0.9\textwidth}{>{\bfseries}l X}
+        Supervisor's Signature: & \hrulefill \\
+    \end{tabularx}
 \end{titlepage}
 
 \hypersetup{pageanchor=true}
 \pagenumbering{roman}
+\pagestyle{frontmatter}
 
 % ==========================================
 % Abstract
 % ==========================================
-\begin{center}
-    \Large \textbf{Abstract}
-\end{center}
-\vspace{0.4cm}
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
 
 The unprecedented growth in both parameter scale and context window size of Large Language Models (LLMs) has made multi-node distributed inference essential for modern deployment.
 However, prevailing parallelism strategies employed in inference scenarios---including Tensor Parallelism (TP), Expert Parallelism (EP), and Context Parallelism (CP)---suffer from significant inefficiencies attributable to substantial inter-node communication overhead.
@@ -130,6 +193,7 @@ These results indicate that pipeline-balanced inference is a viable path toward 
 \tableofcontents
 \newpage
 \pagenumbering{arabic}
+\pagestyle{proposal}
 
 % ==========================================
 % 1 Introduction
@@ -331,7 +395,39 @@ Furthermore, these formulas rely on theoretical FLOPs values, which may deviate 
 \end{figure}
 
 % ==========================================
-% 3 Research Methodology
+% 3 Research Objectives and Scope
+% ==========================================
+\section{Research Objectives and Scope}
+
+This proposal investigates whether pipeline parallelism can be made practical for online LLM inference when model scale, long contexts, and limited inter-node bandwidth jointly constrain serving efficiency.
+The central research hypothesis is that PP-based inference can outperform communication-heavy distributed strategies if its imbalance bubbles are systematically controlled.
+
+\subsection{Research Objectives}
+
+The proposed research is organized around four objectives:
+\begin{itemize}
+    \item \textbf{Characterize PP-specific imbalance in LLM inference.}
+    We will identify and quantify the sources of pipeline bubbles caused by heterogeneous model structure, prefill-decode interference, and highly variable request lengths.
+
+    \item \textbf{Design PP-compatible mechanisms for modern inference techniques.}
+    We will integrate PP with MTP and PD disaggregation through centralized MTP processing, overhead-aware stage partitioning, sliced KV cache management, and stage-wise KV transmission.
+
+    \item \textbf{Develop a computation-aware scheduler for variable-length requests.}
+    We will replace token-budget heuristics with a lightweight execution-time model that accounts for the non-linear cost of long-context attention.
+
+    \item \textbf{Validate feasibility on a realistic multi-node serving stack.}
+    We will evaluate the prototype on an NPU-based OmniInfer deployment and use preliminary results to guide further robustness and generalization studies.
+\end{itemize}
+
+\subsection{Scope}
+
+The scope of this proposal is system-level optimization for serving very large decoder-only and MoE-based LLMs under multi-node deployment.
+The work does not modify model training objectives, model weights, or application-level prompting policies.
+It focuses on runtime mechanisms, pipeline partitioning, KV cache transfer, and request scheduling.
+The preliminary evaluation intentionally remains limited to the NPU+OmniInfer setting and is used as feasibility evidence rather than as a final exhaustive benchmark suite.
+
+% ==========================================
+% 4 Research Methodology
 % ==========================================
 \section{Research Methodology}
 
@@ -501,9 +597,9 @@ The time budget hyperparameter $T_{\mathrm{budget}}$ is empirically set to the e
 By explicitly modeling execution time rather than relying on token counts, \sys achieves balanced micro-batch execution times even under highly variable request lengths, minimizing the accumulated pipeline bubbles that typically plague long-context inference.
 
 % ==========================================
-% 4 Preliminary Evaluation
+% 5 Preliminary Results and Feasibility Evidence
 % ==========================================
-\section{Preliminary Evaluation}
+\section{Preliminary Results and Feasibility Evidence}
 
 This section reports the initial validation of \sys on the NPU-based OmniInfer deployment.
 
@@ -615,7 +711,7 @@ OmniInfer (without PP) & \humanevalpass \\
 \end{table}
 
 % ==========================================
-% 5 Related Work
+% 6 Related Work
 % ==========================================
 \section{Related Work}
 
@@ -645,11 +741,11 @@ Once PP is introduced, MTP becomes a stage-placement and synchronization problem
 \sys addresses this gap by consolidating all MTP computation into a single stage and incorporating multi-round MTP overhead into the partitioning objective.
 
 % ==========================================
-% 6 Future Work
+% 8 Future Work
 % ==========================================
 \section{Future Work}
-
-The preliminary evaluation suggests that balanced PP is promising for large-scale LLM serving, but several directions remain open.
+The current prototype and preliminary results establish the feasibility of pipeline-balanced inference.
+However, several directions remain open.
 
 \begin{itemize}[leftmargin=*]
     \item \textbf{Robustness and fault recovery.}
@@ -666,7 +762,7 @@ The preliminary evaluation suggests that balanced PP is promising for large-scal
 \end{itemize}
 
 % ==========================================
-% 7 Conclusion
+% 9 Conclusion
 % ==========================================
 \section{Conclusion}
 
