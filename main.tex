@@ -11,69 +11,97 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
+\usepackage[dvipsnames]{xcolor}
 \usepackage{xspace}
 \usepackage{caption}
+\usepackage{subcaption}
 \usepackage{setspace}
+\usepackage{microtype}
+\usepackage{enumitem}
 
 \usepackage[numbers]{natbib}
 
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black
+}
+
+\setstretch{1.15}
+\captionsetup{font=small,labelfont=bf}
+
+% Terminology macros.
 \newcommand{\sys}{\textsc{PipeInfer}\xspace}
-\newcommand{\prefillterm}{Prefill\xspace}
-\newcommand{\decodeterm}{Decode\xspace}
-\newcommand{\mtp}{Multi-Token Prediction (MTP)\xspace}
+\newcommand{\prefillterm}{prefill\xspace}
+\newcommand{\Prefillterm}{Prefill\xspace}
+\newcommand{\decodeterm}{decode\xspace}
+\newcommand{\Decodeterm}{Decode\xspace}
+\newcommand{\mtp}{multi-token prediction (MTP)\xspace}
+\newcommand{\MTP}{Multi-Token Prediction (MTP)\xspace}
 \newcommand{\kvcache}{KV cache\xspace}
-\newcommand{\modelimb}{Model-Partitioning Imbalance\xspace}
-\newcommand{\phaseimb}{Phase-Interference Imbalance\xspace}
-\newcommand{\requestimb}{Request-Variability Imbalance\xspace}
-\newcommand{\centralmtp}{Centralized MTP Processing\xspace}
-\newcommand{\overheadpartition}{Overhead-Aware Stage Partitioning\xspace}
-\newcommand{\slicedkv}{Sliced KV Cache Management\xspace}
-\newcommand{\stagekv}{Stage-wise KV Transmission\xspace}
-\newcommand{\timesched}{Computation-Aware Scheduling\xspace}
+\newcommand{\kvconnector}{KV connector\xspace}
+\newcommand{\mla}{Multi-head Latent Attention (MLA)\xspace}
+\newcommand{\modelimb}{model-partitioning imbalance\xspace}
+\newcommand{\Modelimb}{Model-Partitioning Imbalance\xspace}
+\newcommand{\phaseimb}{phase-interference imbalance\xspace}
+\newcommand{\Phaseimb}{Phase-Interference Imbalance\xspace}
+\newcommand{\requestimb}{request-variability imbalance\xspace}
+\newcommand{\Requestimb}{Request-Variability Imbalance\xspace}
+\newcommand{\centralmtp}{centralized MTP processing\xspace}
+\newcommand{\Centralmtp}{Centralized MTP Processing\xspace}
+\newcommand{\overheadpartition}{overhead-aware stage partitioning\xspace}
+\newcommand{\Overheadpartition}{Overhead-Aware Stage Partitioning\xspace}
+\newcommand{\slicedkv}{sliced KV cache management\xspace}
+\newcommand{\Slicedkv}{Sliced KV Cache Management\xspace}
+\newcommand{\stagekv}{stage-wise KV transmission\xspace}
+\newcommand{\Stagekv}{Stage-wise KV Transmission\xspace}
+\newcommand{\timesched}{computation-aware scheduling\xspace}
+\newcommand{\Timesched}{Computation-Aware Scheduling\xspace}
 \newcommand{\clusterconfig}{32-NPU (4-node) Ascend 910C cluster\xspace}
 \newcommand{\vllmgain}{90.8\%\xspace}
 \newcommand{\omnigain}{9.47\%\xspace}
 \newcommand{\bubblecap}{5\%\xspace}
 \newcommand{\humanevalpass}{91.78\%\xspace}
-\captionsetup{font=small,labelfont=bf}
 
 \begin{document}
+\hypersetup{pageanchor=false}
 
 % ==========================================
 % Title Page
 % ==========================================
 \begin{titlepage}
     \centering
-    \vspace*{2cm}
-    
+    \vspace*{1.6cm}
+
     {\Large \textbf{THE UNIVERSITY OF HONG KONG}\par}
-    
-    \vspace{3cm}
-    
-    {\Large \textbf{\sys: A Pipeline-Balanced High-Performance System for LLM Inference}\par}
-    
-    \vspace{3cm}
-    
-    {\large \textbf{Yu TIAN} \\ (ID: 3030102785)\par}
-    
-    \vspace{2cm}
-    
-    {\large \today\par}
-    
-    \vspace{4cm}
-    
-    \begin{flushleft}
-    \large Supervisor: Prof. Heming Cui \\
-    \vspace{1cm}
-    Supervisor's Signature: \hrulefill
-    \end{flushleft}
-    
+
+    \vspace{2.1cm}
+
+    {\Large \textbf{Research Proposal}\par}
+    \vspace{0.8cm}
+    {\LARGE \textbf{\sys: A Pipeline-Balanced High-Performance System for LLM Inference}\par}
+
+    \vspace{2.3cm}
+
+    {\large \textbf{Yu TIAN} \\ Student ID: 3030102785\par}
+
+    \vspace{1.6cm}
+
+    {\large Supervisor: Prof. Heming Cui\par}
+
     \vfill
+
+    \begin{flushleft}
+    \large Supervisor's Signature: \hrulefill
+    \end{flushleft}
+
+    \vspace{1.0cm}
+    {\large \today\par}
 \end{titlepage}
 
-\newpage
+\hypersetup{pageanchor=true}
+\pagenumbering{roman}
 
 % ==========================================
 % Abstract
@@ -81,85 +109,74 @@
 \begin{center}
     \Large \textbf{Abstract}
 \end{center}
-\vspace{0.5cm}
-\setstretch{1.15}
+\vspace{0.4cm}
 
-The unprecedented growth in both parameter scale and context window size of Large Language Models (LLMs) has rendered multi-node distributed inference an essential requirement for modern deployment.
+The unprecedented growth in both parameter scale and context window size of Large Language Models (LLMs) has made multi-node distributed inference essential for modern deployment.
 However, prevailing parallelism strategies employed in inference scenarios---including Tensor Parallelism (TP), Expert Parallelism (EP), and Context Parallelism (CP)---suffer from significant inefficiencies attributable to substantial inter-node communication overhead.
-Although Pipeline Parallelism (PP) presents a promising approach to mitigate these communication bottlenecks, it frequently encounters severe load imbalances---manifesting as pipeline bubbles---stemming from the inherent heterogeneities and dynamic workloads characteristic of LLM inference.
-In this work, we systematically characterize three primary load imbalance challenges in PP-based inference: \modelimb, \phaseimb, and \requestimb.
+Although Pipeline Parallelism (PP) presents a promising approach to mitigate these communication bottlenecks, it frequently encounters severe load imbalance---manifesting as pipeline bubbles---due to the inherent heterogeneity and dynamic workloads of LLM inference.
 
-To address these challenges, we present \sys, a novel pipeline-balanced inference system designed to bridge the efficiency gap through a synergistic co-design of pipeline parallelism with state-of-the-art inference techniques.
-Specifically, \sys introduces: (1) \centralmtp and \overheadpartition to resolve \modelimb; (2) \slicedkv and \stagekv to eliminate \phaseimb; and (3) \timesched leveraging a quadratic cost model to handle \requestimb.
+This proposal presents \sys, a pipeline-balanced LLM inference system that systematically addresses three sources of imbalance in PP-based inference: \modelimb, \phaseimb, and \requestimb.
+\sys introduces \centralmtp and \overheadpartition to address \modelimb, \slicedkv and \stagekv to address \phaseimb, and \timesched leveraging a quadratic cost model to address \requestimb.
 
-Preliminary evaluations on a \clusterconfig with DeepSeek-R1 (671B) demonstrate that \sys achieves up to \vllmgain end-to-end throughput improvement over state-of-the-art baselines such as vLLM-Ascend under identical SLO constraints, while strictly bounding pipeline bubbles under \bubblecap with zero accuracy degradation.
+Preliminary evaluations on a \clusterconfig running DeepSeek-R1 (671B) show that \sys improves end-to-end throughput by up to \vllmgain over vLLM-Ascend and by \omnigain over OmniInfer under the same SLO constraints, while keeping the pipeline bubble ratio below \bubblecap and preserving model accuracy.
+These results indicate that pipeline-balanced inference is a viable path toward efficient serving of future trillion-parameter LLMs.
 
-\vspace{1cm}
-\noindent \textbf{Keywords:} Large Language Models (LLMs), Pipeline Parallelism (PP), Inference System.
+\vspace{0.8cm}
+\noindent \textbf{Keywords:} Large language models, inference systems, pipeline parallelism, KV cache, scheduling.
 
 \newpage
-\setstretch{1.15}
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
 
 % ==========================================
 % 1 Introduction
 % ==========================================
 \section{Introduction}
 
-Large Language Models (LLMs) have emerged as the cornerstone of modern artificial intelligence~\cite{survey}.
+Large Language Models (LLMs) have emerged as a cornerstone of modern artificial intelligence~\cite{survey}.
 The industry is witnessing a substantial capital reallocation, with compute budgets definitively shifting from model training to deployment, thereby rendering inference efficiency the new critical bottleneck~\cite{splitwise}.
 This rapid evolution has been characterized by a massive expansion in both parameter scale (e.g., DeepSeek-R1 671B~\cite{deepseek-r1}, Kimi K2 1T~\cite{kimi2}) and context window sizes (e.g., Qwen3 1M tokens~\cite{qwen3}).
 
 While unlocking unprecedented capabilities, this expansion imposes prohibitive memory constraints on the underlying serving infrastructure.
-A single inference node (e.g., equipped with $8 \times$ H800 GPUs) often lacks sufficient High Bandwidth Memory (HBM) to host the full weights of massive models alongside the runtime KV cache under large batch sizes.
+A single inference node (e.g., equipped with $8 \times$ H800 GPUs) often lacks sufficient High Bandwidth Memory (HBM) to host the full weights of massive models alongside the runtime \kvcache under large batch sizes.
 Consequently, multi-node distributed inference has become an imperative necessity for deployment, shifting the system bottleneck from memory capacity to inter-node communication bandwidth.
 
-However, commonly employed parallelism strategies in inference scenarios---such as Tensor Parallelism (TP)~\cite{megatron}, Expert Parallelism (EP)~\cite{deepseekv3}, and Context Parallelism (CP)~\cite{ringattention}---suffer from severe inefficiencies due to substantial inter-node communication overhead~\cite{splitwise,distserve}.
-For instance, TP relies heavily on layer-wise, high-bandwidth-consuming All-Reduce collectives, which induces severe latency degradation across nodes~\cite{alpa}.
-% Furthermore, for ``deep and thin'' models, TP fragments the already narrow hidden dimensions too finely, leading to insufficient computation grain size and diminished hardware utilization.
+However, commonly employed parallelism strategies in inference scenarios---such as Tensor Parallelism (TP)~\cite{megatron}, Expert Parallelism (EP)~\cite{deepseekv3,cloudmatrix384}, and Context Parallelism (CP)~\cite{ringattention,loongserve}---suffer from severe inefficiencies due to substantial inter-node communication overhead~\cite{splitwise,distserve}.
+For instance, TP relies heavily on layer-wise All-Reduce collectives, which induce severe latency degradation across nodes~\cite{alpa}.
 
-To mitigate inter-node communication bottlenecks, Pipeline Parallelism (PP)~\cite{gpipe} emerges as an ideal candidate, as it requires only the transfer of a limited volume of hidden states between stages.
-% Compared to TP, PP enables each layer to maintain a more complete computation shape, sustaining higher arithmetic intensity and cache locality in ``deep and thin'' models.
-However, while PP is widely adopted in large-scale training, its application to inference scenarios remains challenging.
-This is primarily because the inherent heterogeneities and dynamic workloads characteristic of LLM inference frequently trigger various forms of load imbalance, manifesting as pipeline bubbles~\cite{gpipe}.
+To mitigate inter-node communication bottlenecks, Pipeline Parallelism (PP)~\cite{gpipe,seesaw} emerges as an ideal candidate, as it requires only the transfer of a limited volume of hidden states between stages, resulting in orders-of-magnitude lower communication traffic than TP, CP, or EP (Table~\ref{tab:parallel_comm}).
+However, while PP is widely adopted in large-scale training~\cite{gpipe,pipedream,terapipe,zerobubble,vocabparallel}, its application to online LLM inference remains challenging.
+This is primarily because the inherent heterogeneity and workload dynamics characteristic of LLM inference frequently trigger various forms of load imbalance, manifesting as pipeline bubbles~\cite{gpipe}.
 We systematically categorize these imbalances into three primary dimensions:
 
-\begin{itemize}
-    \item \textbf{\modelimb:} Many contemporary LLMs exhibit heterogeneous workloads across layers (e.g., DeepSeek-R1 integrates both dense and MoE layers~\cite{deepseek-r1,deepseekv3}), where naive layer-wise partitioning leads to mismatched execution times across stages.
-    The introduction of \mtp~\cite{eagle,deepseekv3} further exacerbates this imbalance.
-    Existing MTP implementations, primarily based on EAGLE~\cite{eagle}, comprise three modules---Embedding layer, MTP layer, and LM Head---where the Embedding layer and LM Head typically reuse weights from the base model.
-    Naively integrating \mtp with PP produces several issues: First, PP introduces additional inter-stage communication by separating the Embedding layer (in Stage 0) from the MTP layer and LM Head (both typically in Stage $N-1$).
-    Second, the mutual dependency between \mtp and the base-model execution flow induces pipeline bubbles.
-    Third, it can lead to hardware idling; since the MTP model is architecturally limited to a maximum of three stages, any PP configuration exceeding three stages leaves certain machines unable to participate in MTP computation.
-    
-    \item \textbf{\phaseimb:} LLM inference comprises two distinct phases with fundamentally different computational characteristics---\prefillterm and \decodeterm~\cite{splitwise,distserve}, where significant execution time variances readily lead to pipeline bubbles across batches~\cite{dejavu}.
-    While Prefill-Decode (PD) disaggregation architectures~\cite{splitwise, distserve, dejavu, mooncake} mitigate cross-phase interference, the accumulation of KV cache in the Prefill stage still induces pipeline bubbles.
-    To maximize bandwidth utilization, current implementations often defer KV cache transmission until all Prefill layers have completed.%这句话有点突兀
-    In a PP scenario, this forces each stage to wait for all subsequent stages to finish before transmitting and freeing its local KV cache.
-    Under bursty high-concurrency traffic, one micro-batch may saturate resources, forcing subsequent requests to wait until the final stage completes, thereby resulting in the whole pipeline stall.
-    Furthermore, PP introduces \textbf{KV cache sharding across stages}: each Prefill stage generates only a layer-wise KV cache slice, and each Decode stage requires only the retrieval of the KV cache slice corresponding to its assigned layers.
-    This transformation of simple point-to-point KV cache transfers into complex stage-to-stage transmission poses a significant management challenge.
-    
-    \item \textbf{\requestimb:} In online inference, the extreme variance in request lengths naturally leads to highly inconsistent micro-batch execution times~\cite{sarathi}, which is a non-negligible source of pipeline bubbles.
-    To mitigate these challenges, existing schedulers (e.g., Sarathi-Serve~\cite{sarathi}) employ chunked prefill by partitioning long requests into smaller chunks.
-    However, such token-budget-based methods assume a linear relationship between execution time and token count, fundamentally overlooking the quadratic complexity of attention mechanisms~\cite{attention-complexity}.
-    As sequence length increases, quadratic attention computation becomes dominant.
-    Since subsequent chunks must attend to the KV cache of all preceding chunks, the computational overhead grows progressively, causing token-based scheduling to suffer from severe pipeline bubbles when handling long-context requests~\cite{attention-complexity}.
+\begin{itemize}[leftmargin=*]
+    \item \textbf{\Modelimb.} Many contemporary LLMs exhibit heterogeneous workloads across layers (e.g., DeepSeek-R1 integrates both dense and MoE layers~\cite{deepseek-r1,deepseekv3}), where naive layer-wise partitioning leads to mismatched execution times across stages.
+    Multi-token prediction (MTP)~\cite{eagle,deepseekv3} further exacerbates this imbalance: MTP modules share weights with the base model's Embedding and LM Head, so PP separates these shared components across stages (Embedding in Stage~0, LM Head in Stage~$N{-}1$), introducing additional cross-stage communication, inducing pipeline bubbles due to mutual dependencies between MTP and the base-model execution flow, and causing hardware idling on middle stages that cannot participate in MTP computation.
+
+    \item \textbf{\Phaseimb.} LLM inference comprises two distinct phases with fundamentally different computational characteristics---\Prefillterm and \Decodeterm~\cite{splitwise,distserve}. Their large execution-time disparity readily leads to pipeline bubbles across batches~\cite{dejavu}.
+    While Prefill-Decode (PD) disaggregation architectures~\cite{splitwise,distserve,mooncake,dejavu} mitigate cross-phase interference, they introduce new challenges in PP scenarios: many existing systems defer \kvcache transmission until the entire model completes to maximize bandwidth utilization, forcing early stages to accumulate KV caches of all in-flight micro-batches and thus stall the pipeline when early stages exhaust HBM due to bursty requests.
+    Furthermore, PP fragments \kvcache across stages, transforming simple point-to-point transfers into complex stage-to-stage routing that significantly complicates \kvcache management.
+
+    \item \textbf{\Requestimb.} In online inference, the extreme variance in request lengths naturally leads to highly inconsistent micro-batch execution times~\cite{sarathi}, which is a non-negligible source of pipeline bubbles.
+    Existing schedulers (e.g., Sarathi-Serve~\cite{sarathi}) employ token-budget-based heuristics, but these methods assume a linear relationship between execution time and token count, fundamentally overlooking the quadratic complexity of attention mechanisms~\cite{attention-complexity}.
+    Since subsequent chunks must attend to the \kvcache of all preceding chunks, the computational overhead grows progressively, causing token-based scheduling to incur severe pipeline bubbles for long-context requests.
 \end{itemize}
 
 To address these imbalance challenges, we propose \sys, a pipeline-balanced high-performance inference system featuring a synergistic co-design of pipeline parallelism with complementary inference techniques.
-To resolve \textbf{\modelimb}, we integrate PP with \mtp by introducing \textbf{\centralmtp} and \textbf{\overheadpartition}, which consolidate MTP computation into the final stage and balance stage-wise workloads through execution-cost modeling.
-To handle \textbf{\phaseimb}, we unify PP with PD disaggregation by establishing connections based on PP stages to facilitate \textbf{\slicedkv} and \textbf{\stagekv}, effectively preventing KV cache accumulation in the \prefillterm stage.
-Finally, to manage \textbf{\requestimb}, we design a \textbf{\timesched} algorithm that balances micro-batch workloads by explicitly modeling their execution time rather than relying solely on token counts.
+To resolve \modelimb, we integrate PP with MTP by introducing \centralmtp and \overheadpartition, which consolidate MTP computation into the final stage and balance stage-wise workloads through execution-cost modeling.
+To address \phaseimb, we unify PP with PD disaggregation by establishing connections based on PP stages to facilitate \slicedkv and \stagekv, effectively preventing \kvcache accumulation in the \prefillterm stage.
+Finally, to address \requestimb, we design a \timesched algorithm that balances micro-batch workloads by explicitly modeling their execution time rather than relying solely on token counts.
 
-Preliminary evaluations on a \clusterconfig running the 671B-parameter DeepSeek-R1 model demonstrate \sys's superior performance.
+Preliminary evaluations on a \clusterconfig running DeepSeek-R1 (671B) demonstrate \sys's superior performance.
 Under strict Service Level Objectives (SLOs), \sys enhances end-to-end throughput by up to \vllmgain compared to the open-source vLLM-Ascend standard, and outperforms the highly optimized OmniInfer industrial baseline by \omnigain.
 Crucially, it strictly bounds pipeline bubbles to under \bubblecap while maintaining zero accuracy degradation.
 
 Our main contributions are as follows:
-\begin{itemize}
-    \item We systematically characterize three types of load imbalance in PP-based inference: \textbf{\modelimb}, \textbf{\phaseimb}, and \textbf{\requestimb}.
+\begin{itemize}[leftmargin=*]
+    \item We systematically characterize three types of load imbalance in PP-based inference: \modelimb, \phaseimb, and \requestimb.
     \item We propose \sys, an LLM inference system that achieves holistic balance through a synergistic co-design of pipeline parallelism with complementary inference techniques and a computation-aware scheduler.
-    \item We perform a preliminary evaluation on production-scale models (e.g., DeepSeek-R1), demonstrating that \sys significantly improves throughput and hardware efficiency in cross-node scenarios.
+    \item We provide preliminary evidence on a production-scale NPU setting that balanced PP can significantly improve inference throughput while preserving correctness.
 \end{itemize}
 
 % ==========================================
@@ -172,42 +189,42 @@ In this section, we analyze why Pipeline Parallelism represents the most viable 
 
 \subsection{The Opportunity for Pipeline Parallelism}
 
-The evolution of Large Language Models has demonstrated the power of scaling laws: increasing model parameters enhances foundational capabilities, while extending inference-time computation improves complex reasoning.
-However, the massive model size and the memory footprint of KV cache for long contexts exert immense pressure on GPU memory, frequently exceeding the capacity of a single computing node.
-For instance, a DeepSeek-R1 model with 671B parameters surpasses the 640GB memory limit of a standard H800 node (8 $\times$ 80GB).
+The evolution of Large Language Models has demonstrated the power of scaling laws~\cite{scaling-laws}: increasing model parameters enhances foundational capabilities, while extending inference-time computation improves complex reasoning~\cite{test-time-compute}.
+However, the massive model size and the memory footprint of \kvcache for long contexts exert immense pressure on accelerator memory, frequently exceeding the capacity of a single computing node.
+For instance, a DeepSeek-R1 model~\cite{deepseek-r1} with 671B parameters surpasses the 640\,GB memory limit of a standard H800 node ($8 \times 80$\,GB).
 Consequently, multi-node deployment has become indispensable.
 
 Among existing parallelism strategies, Data Parallelism (DP) scales throughput by replicating models but fails to address memory constraints, as it does not partition the model.
-Context Parallelism (CP), such as Ring Attention~\cite{ringattention}, handles long sequences by partitioning context but remains ineffective against massive weights and incurs high communication overhead by passing KV cache layer by layer.
+Context Parallelism (CP), such as Ring Attention~\cite{ringattention} and LoongServe~\cite{loongserve}, handles long sequences by partitioning context but remains ineffective against massive weights and incurs high communication overhead by passing \kvcache layer by layer.
 Tensor Parallelism (TP)~\cite{megatron} achieves intra-layer parallelism but requires heavy layer-wise All-Reduce communication, rendering it unsuitable for inter-node scenarios with limited bandwidth.
-Moreover, for ``thin and tall'' models with smaller hidden sizes, excessive TP partitions matrices too finely, leading to degraded computation efficiency and cache hit rates.
-For MoE models such as DeepSeek-R1, Expert Parallelism (EP)~\cite{deepseekv3} is effective but suffers from high layer-wise All-to-All communication costs and potential bubbles due to expert load imbalance.
+Moreover, for deep and narrow models with smaller hidden sizes, excessive TP partitions matrices too finely, leading to degraded computation efficiency and cache hit rates.
+TP also interacts poorly with \mla architectures~\cite{deepseekv2}: because MLA compresses the \kvcache into a low-rank latent space that cannot be partitioned across TP ranks, every rank must redundantly store the full latent \kvcache, negating much of TP's memory-saving benefit.
+For MoE models such as DeepSeek-R1, Expert Parallelism (EP)~\cite{deepseekv3,cloudmatrix384} is effective but suffers from high layer-wise All-to-All communication costs and potential bubbles due to expert load imbalance.
 
-Compared to these strategies, Pipeline Parallelism transmits only a small volume of activations between stages, resulting in significantly lower communication traffic (as shown in Table~\ref{tab:parallel_comm}).
-% This renders PP a robust candidate for inter-node deployment.
+As shown in Table~\ref{tab:parallel_comm}, Pipeline Parallelism transmits only a small volume of activations between stages, resulting in significantly lower communication traffic than alternative strategies.
 While industry systems often employ engineering techniques such as double-batching to hide communication costs, the inherent dependency between computation and communication for a single request implies that inference latency remains bottlenecked by slow inter-node links.
 Therefore, PP is a very promising optimization candidate because it fundamentally reduces cross-node communication overhead.
 
 However, while PP offers a pathway to low-bandwidth multi-node inference, the pipeline imbalance bubble issue remains the primary obstacle that must be addressed.
 
-\begin{table}[h]
+\begin{table}[!htbp]
 \centering
-\caption{Communication volume of different parallelism strategies for LLM inference.}
+\caption{Communication volume of common parallelism strategies for LLM inference. The example column uses DeepSeek-R1 parameters ($H{=}7168$, $L{=}61$, $K{=}8$) under $B{=}8$, $S{=}2048$, $P{=}2$, BF16; for EP, $b{=}B/4{=}2$ assuming 4-way EP.}
 \label{tab:parallel_comm}
-\begin{tabular}{lcc}
+\begin{tabular}{lccc}
 \toprule
-\textbf{Strategy} & \textbf{Comm. Primitive} & \textbf{Comm. Volume} \\ 
+\textbf{Strategy} & \textbf{Primitive} & \textbf{Volume} & \textbf{Example (GB)} \\
 \midrule
-Data Parallelism (DP) & / & / \\ 
-Tensor Parallel (TP)~\cite{megatron} & All-Reduce & $4 \cdot B \cdot S \cdot H \cdot L$ \\ 
-Context Parallel (CP)~\cite{ringattention} & All-Gather & $2 \cdot B \cdot S \cdot H \cdot L$ \\ 
-Expert Parallel (EP)~\cite{deepseekv3} & All-to-All & $2 \cdot K \cdot b \cdot S \cdot H \cdot L$ \\ 
-\textbf{Pipeline Parallel (PP)}~\cite{gpipe} & \textbf{P2P (Send/Recv)} & $\mathbf{B \cdot S \cdot H \cdot (P-1)}$ \\ 
+Data Parallelism (DP) & N/A & N/A & N/A \\
+Tensor Parallelism (TP)~\cite{megatron} & All-Reduce & $4BSHL$ & 57.3 \\
+Context Parallelism (CP)~\cite{ringattention} & All-Gather & $2BSHL$ & 28.7 \\
+Expert Parallelism (EP)~\cite{deepseekv3} & All-to-All & $2KbSHL$ & 57.3 \\
+\textbf{Pipeline Parallelism (PP)}~\cite{gpipe} & \textbf{P2P} & $\mathbf{BSH(P{-}1)}$ & \textbf{0.2} \\
 \bottomrule
 \end{tabular}
 \begin{flushleft}
 \small
-\textbf{Notation:} $B$: Batch Size; $b$: EP Batch Size per Node; $S$: Sequence Length; $H$: Hidden Size; $L$: Total Layers; $K$: Number of activated experts; $P$: Number of pipeline stages.
+\textbf{Notation:} $B$: batch size; $b$: EP batch size per node; $S$: sequence length; $H$: hidden size; $L$: number of layers; $K$: number of activated experts; $P$: number of pipeline stages.
 \end{flushleft}
 \end{table}
 
@@ -216,10 +233,10 @@ Expert Parallel (EP)~\cite{deepseekv3} & All-to-All & $2 \cdot K \cdot b \cdot S
 While Pipeline Parallelism offers significant potential for cross-node deployment of large-scale models, its performance is often hindered by pipeline bubbles.
 Pipeline bubbles can be categorized into two types: \textbf{inherent bubbles} and \textbf{imbalance bubbles}, as shown in Figure~\ref{fig:2bubbetypes}.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.75\textwidth]{pics/2-bubble-types.pdf}
-    \caption{Two pipeline bubble types: \textbf{inherent bubbles} and \textbf{imbalance bubbles}.}
+    \caption{Two pipeline bubble types: \textbf{inherent bubbles} arise during warm-up and cool-down, while \textbf{imbalance bubbles} persist throughout steady-state execution.}
     \label{fig:2bubbetypes}
 \end{figure}
 
@@ -227,281 +244,288 @@ Inherent bubbles arise from the intrinsic data dependencies during pipeline warm
 During warm-up, early stages process the first micro-batch while later stages remain idle; during cool-down, later stages process the final micro-batch while earlier stages have completed.
 These inherent bubbles can be amortized and safely ignored over long generation periods when the number of micro-batches significantly exceeds the number of pipeline stages ($N \gg P$)~\cite{gpipe}.
 
-In contrast, \textbf{imbalance bubbles} persist throughout the entire pipeline execution, continuously degrading GPU utilization and must be systematically mitigated.
-As shown in Figure~\ref{fig:imbalance}, these bubbles stem from three fundamental causes: (1) \textit{uneven stage partitioning}, where different stages exhibit mismatched execution times; (2) \textit{inconsistent micro-batch workloads}, where different micro-batches require varying processing times; and (3) \textit{data dependencies}, where stages must wait for data from other stages before proceeding.
+In contrast, \textbf{imbalance bubbles} persist throughout the entire pipeline execution, continuously degrading accelerator utilization and must be systematically mitigated.
+These imbalance bubbles stem from three fundamental causes: (1)~\textit{uneven stage partitioning}, where different stages exhibit mismatched execution times; (2)~\textit{inconsistent micro-batch workloads}, where different micro-batches require varying processing times; and (3)~\textit{data dependencies}, where stages must wait for data from other stages before proceeding.
+Figure~\ref{fig:imbalance} illustrates imbalance bubbles caused by uneven stage partitioning and inconsistent micro-batch workloads, with cross-stage data dependencies implicitly underlying both scenarios.
 In the context of modern LLM inference, we identify three specific types of imbalance bubbles arising from these fundamental causes: \textbf{\modelimb}, \textbf{\phaseimb}, and \textbf{\requestimb}.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{pics/imbalance-stage-batch.pdf}
+    \includegraphics[width=0.82\textwidth]{pics/imbalance-stage-batch.pdf}
     \caption{Three root causes of imbalance bubbles: uneven stage partitioning, inconsistent micro-batch workloads, and cross-stage data dependencies.}
     \label{fig:imbalance}
 \end{figure}
 
-\subsubsection{\modelimb}
+\subsubsection{\Modelimb}
 
 Modern LLMs exhibit heterogeneous architectural characteristics that invalidate naive layer-wise partitioning strategies.
-
 Contemporary LLMs integrate Dense and Mixture-of-Experts (MoE) FFNs~\cite{deepseekv3}, as well as Full and Linear Attention mechanisms across different layers.
 Naive partitioning by layer count inevitably leads to severe workload imbalances across stages, as different layer types exhibit vastly different computational costs.
 
-A more significant challenge arises from \mtp~\cite{eagle, deepseekv3}, as shown in Figure~\ref{fig:mtp-challenge}. 
-\mtp is a training-inference co-designed speculative decoding paradigm that is becoming the new industry standard for high-throughput inference.
+A more significant challenge arises from MTP~\cite{eagle,deepseekv3}, as shown in Figure~\ref{fig:mtp-integration}.
+MTP is a training-inference co-designed speculative decoding paradigm that is becoming the new industry standard for high-throughput inference.
 MTP modules deeply share weights with the base model's Embedding and LM Head.
-In naive PP, placing the Embedding at Stage 0 and the LM Head at Stage $N-1$ forces intermediate activations to ``round-trip'' across the cluster, incurring additional inter-stage communication.
+Recent PP studies likewise show that output-side post-processing or vocabulary-related computation can distort stage balance~\cite{vocabparallel,dynapipe}, but MTP introduces an additional cross-stage dependency between the shared Embedding and LM Head.%TODO: 这句话有点莫名其妙，paper中有写过这种东西吗？
+In naive PP, placing the Embedding at Stage~0 and the LM Head at Stage~$N{-}1$ forces intermediate activations to ``round-trip'' across the cluster, incurring additional inter-stage communication.
 This mutual dependency also stalls intermediate stages during MTP computation, introducing structural imbalance bubbles as these stages remain idle.
 
-% 这个图要改，可以参考专利的图，中间其实没有那么多空隙。
-\begin{figure}[htbp]
+Figure~\ref{fig:mtp-integration} compares the naive and proposed designs using a consistent three-stage pipeline.
+The naive design places the Embedding layer at Stage~0 and the LM Head at Stage~2, forcing MTP-related information to cross the pipeline boundary again.
+In \sys, Stage~0 retains the normal Embedding layer for base-model execution, while Stage~2 redundantly loads an Embedding copy together with MTP and the LM Head.
+This removes MTP round-trip communication and leaves only the ordinary forward data flow.
+
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{pics/mtp-solu.pdf}
-    \caption{MTP integration under pipeline parallelism. The naive design (left) introduces extra communication and idle stages, whereas our centralized design (right) removes both inefficiencies.}
-    \label{fig:mtp-challenge}
+    \caption{MTP integration under pipeline parallelism. The naive design (left) introduces extra communication and idle stages, whereas \sys's centralized design (right) consolidates all MTP computation into the final stage, eliminating cross-stage MTP communication.}
+    \label{fig:mtp-integration}
 \end{figure}
 
-\subsubsection{\phaseimb}
+\subsubsection{\Phaseimb}
 
-LLM inference comprises two distinct phases with fundamentally different computational characteristics: the Prefill phase, which processes the prompt in parallel to generate the first output token, exhibiting compute-bound behavior; and the Decode phase, which iteratively generates subsequent tokens one by one, exhibiting memory-bound behavior~\cite{splitwise, distserve}.
+LLM inference comprises two distinct phases with fundamentally different computational characteristics: the \Prefillterm phase, which processes the prompt in parallel to generate the first output token, exhibiting compute-bound behavior; and the \Decodeterm phase, which iteratively generates subsequent tokens one by one, exhibiting memory-bound behavior~\cite{splitwise,distserve}.
 This inherent dichotomy creates interference when both phases are co-located.
 
-A single \prefillterm step often takes substantially longer than a \decodeterm step, causing prefill-dominant micro-batches to run significantly slower than decode-dominant batches, which drastically degrades Time Between Tokens (TBT).
+A single \prefillterm step often takes substantially longer than a \decodeterm step, causing prefill-dominant micro-batches to run significantly slower than decode-dominant micro-batches and drastically degrading Time Between Tokens (TBT).
 This drastic time discrepancy creates highly variable micro-batch execution times, thereby generating imbalance bubbles.
 
-While disaggregated Prefill-Decode (PD) architectures~\cite{splitwise, distserve, dejavu, mooncake} have become the standard approach to mitigate cross-phase interference, they introduce new challenges in PP scenarios.
-
-Existing systems widely employ bulk transmission, deferring KV cache transfer until the entire Prefill phase completes to maximize bandwidth utilization.
-However, under Pipeline Parallelism, this mechanism forces early stages (e.g., Stage 0) to passively wait for all subsequent stages to finish before they can transmit and release their local KV cache.
+While disaggregated Prefill-Decode (PD) architectures~\cite{splitwise,distserve,dejavu,mooncake,tetriinfer,memserve,pdserve,flowkv} have become the standard approach to mitigate cross-phase interference, they introduce new challenges in PP scenarios.
+Existing systems widely employ bulk transmission, deferring \kvcache transfer until the entire \Prefillterm phase completes to maximize bandwidth utilization.
+However, under Pipeline Parallelism, this mechanism forces early stages (e.g., Stage~0) to passively wait for all subsequent stages to finish before they can transmit and release their local \kvcache.
 As illustrated in Figure~\ref{fig:kv-accumulation}, under bursty traffic conditions, large micro-batches exhaust early-stage memory resources.
-Since the KV cache is held until the end of the pipeline, subsequent micro-batches are starved of resources, forcing the whole pipeline to stall and creating massive bubbles.
+Since the \kvcache is held until the end of the pipeline, subsequent micro-batches are starved of resources, forcing the whole pipeline to stall and creating massive bubbles.
 
-Furthermore, PP inherently fragments the KV cache across stages, transforming traditional simple point-to-point communication into complex stage-to-stage routing.
-Each Prefill stage generates only its assigned layers' KV cache slice, and each Decode stage requires only the slice corresponding to its assigned layers.
+Furthermore, PP inherently fragments the \kvcache across stages, transforming traditional simple point-to-point communication into complex stage-to-stage routing.
+Each \Prefillterm stage generates only its assigned layers' \kvcache slice, and each \Decodeterm stage requires only the slice corresponding to its assigned layers.
 This many-to-many routing pattern poses significant management challenges and threatens system robustness.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{pics/KV-stack.pdf}
-    \caption{KV cache accumulation in PP-based PD disaggregation. Deferred transmission increases memory pressure on early stages and can stall the pipeline.}
+    \includegraphics[width=0.78\textwidth]{pics/KV-stack.pdf}
+    \caption{KV cache accumulation in PP-based PD disaggregation. Bulk transmission defers \kvcache transfer until the entire \prefillterm pipeline completes, forcing early stages to hold KV caches of all in-flight micro-batches.}
     \label{fig:kv-accumulation}
 \end{figure}
 
-\subsubsection{\requestimb}
+\subsubsection{\Requestimb}
 
 The substantial variance in request lengths makes it difficult to align micro-batch execution times, thereby introducing further pipeline bubbles.
-Existing schedulers (e.g., Sarathi-Serve~\cite{sarathi}) employ Chunked Prefill to mitigate this by partitioning long requests into smaller chunks and limiting the total token count per micro-batch.
-However, such token-budget-based methods assume a linear relationship between execution time and token count, fundamentally overlooking the $O(S^2)$ quadratic complexity of attention mechanisms.
+Existing schedulers (e.g., Sarathi-Serve~\cite{sarathi} and gLLM~\cite{gllm}) employ chunking- or token-budget-based strategies to mitigate this by chunking long requests into smaller pieces and limiting the total token count per micro-batch.
+However, such token-budget-based methods assume a linear relationship between execution time and token count, fundamentally overlooking the quadratic complexity of attention mechanisms.
 
 As sequence length increases, quadratic attention computation becomes dominant.
-Since subsequent chunks must attend to the KV cache of all preceding chunks, the computational overhead grows progressively~\cite{attention-complexity}.
+Since subsequent chunks must attend to the \kvcache of all preceding chunks, the computational overhead grows progressively~\cite{attention-complexity}.
 This progressive increase in chunk execution time causes token-based scheduling to suffer from severe pipeline bubbles when handling long-context requests, as shown in Figure~\ref{fig:sarathi-bubble}.
 
 Existing solutions face significant limitations.
 Dynamic programming approaches~\cite{terapipe} can theoretically optimize chunk sizes for balanced execution times, but they incur high computational complexity ($O(mnl^2)$) and are difficult to apply to varying request lengths in real-time inference scenarios.
 FLOPs-based empirical formulas attempt to estimate execution time through computational cost modeling, but they account only for theoretical computation while overlooking memory access and communication overhead.
 Furthermore, these formulas rely on theoretical FLOPs values, which may deviate significantly from actual execution costs due to varying operator implementations, such as FlashAttention~\cite{flashattention}.
-These optimizations can significantly alter the relationship between theoretical FLOPs and actual wall-clock time, rendering simple formulas inaccurate.
 
-%这个图也要改，统一配色
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{pics/sarathi-bubble.pdf}
-    \caption{Failure of token-budget scheduling for long-context requests. Quadratic attention makes later chunks progressively more expensive.}
+    \includegraphics[width=0.78\textwidth]{pics/sarathi-bubble.pdf}
+    \caption{Failure of token-budget scheduling for long-context requests. Quadratic attention makes later chunks progressively more expensive even under the same token budget.}
     \label{fig:sarathi-bubble}
 \end{figure}
-
 
 % ==========================================
 % 3 Research Methodology
 % ==========================================
 \section{Research Methodology}
 
-In this section, we present the preliminary system design of \sys.
+In this section, we present the system design of \sys.
 We first provide an overview of the system architecture, followed by an in-depth description of the three core techniques developed to address the multi-dimensional load imbalance in pipeline-parallel LLM inference.
 
 \subsection{System Overview}
 
-Figure~\ref{fig:overview} illustrates the overall architecture of \sys.
-\sys adopts a disaggregated Prefill-Decode architecture, partitioning the compute cluster into separate Prefill and Decode pools, each potentially configured with different pipeline parallelism strategies.
-Both Prefill and Decode instances are equipped with MTP modules: the Prefill instance's MTP module is invoked once per request to generate the MTP KV cache, while the Decode instance's MTP module is invoked multiple times per generation step to produce multiple candidate tokens.
-Between Prefill and Decode nodes, \sys establishes stage-to-stage KV cache transfer connections, managed by dedicated KV Connectors that enable fine-grained, on-demand KV cache transmission.
-%这一章要不要写方法和问题的对应关系？
+As shown in Figure~\ref{fig:overview}, \sys adopts a disaggregated Prefill-Decode architecture, partitioning the compute cluster into separate \Prefillterm and \Decodeterm pools, each potentially configured with different pipeline parallelism strategies.
+Both \Prefillterm and \Decodeterm instances are equipped with MTP modules: the \Prefillterm instance's MTP module is invoked once per request to generate the MTP \kvcache, while the \Decodeterm instance's MTP module is invoked multiple times per generation step to produce multiple candidate tokens.
+To ensure pipeline efficiency, \sys implements \Centralmtp and \Overheadpartition (Section~\ref{sec:partition}) to address \modelimb by consolidating MTP computation into the final stage and balancing stage-wise workloads.
+Between \Prefillterm and \Decodeterm nodes, \sys establishes stage-to-stage \kvcache transfer connections, managed by dedicated \kvconnector{}s that enable \Slicedkv and \Stagekv (Section~\ref{sec:kvcache}) to resolve \phaseimb through fine-grained, on-demand transmission.
+Finally, \sys incorporates \Timesched (Section~\ref{sec:scheduling}) to address \requestimb, which leverages a quadratic cost model to maintain balanced micro-batch execution times even under highly variable request lengths.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.95\textwidth]{pics/overview.pdf}
-    \caption{System overview of \sys. \sys combines disaggregated Prefill-Decode clusters, stage-wise KV cache transfer, and computation-aware scheduling.}
+    \caption{System overview of \sys. \sys combines disaggregated \Prefillterm-\Decodeterm clusters, \centralmtp, stage-wise \kvcache transfer, and \timesched to address all three dimensions of pipeline imbalance.}
     \label{fig:overview}
 \end{figure}
 
-\subsection{\centralmtp and \overheadpartition}
+\subsection{\Centralmtp and \Overheadpartition}
+\label{sec:partition}
 
-To address the model-partitioning imbalance, we propose a two-pronged approach: Centralized MTP Processing and Overhead-Aware Stage Partitioning.
+A key challenge in integrating MTP with PP lies in the \modelimb.
+As analyzed in Section~\ref{sec:moti}, MTP introduces long-range dependencies between the shared Embedding (Stage~0) and LM Head (Stage~$N{-}1$), which directly conflicts with the locality assumption inherent in pipeline parallelism.
+To resolve this, we propose a two-pronged approach that achieves structural and temporal balance through \Centralmtp and \Overheadpartition.
 
-\subsubsection{Centralized MTP Processing}
+\subsubsection{\Centralmtp}
 
-As analyzed in Section~\ref{sec:moti}, naively integrating MTP with PP introduces extra inter-stage communication and leaves intermediate stages idle during MTP computation.
-The root cause is that PP's layer-wise partitioning disperses MTP components across different stages.
-To eliminate this structural conflict, we consolidate all MTP modules and their execution into the final pipeline stage (Stage $N-1$) by redundantly loading the Embedding layer weights, as illustrated in Figure~\ref{fig:mtp-solution}.
+To eliminate the structural conflict caused by dispersed MTP components, we implement \textit{weight relocalization}.
+By redundantly loading the Embedding layer weights into the final pipeline stage (Stage~$N{-}1$), we transform logic-level global dependencies into physical-level local computation.
 
-This design offers several advantages:
-(1) It completely eliminates the ``round-trip'' communication between Stage 0 and Stage $N-1$ during MTP execution;
-(2) It allows all stages to participate in the base model computation without idle time.
+This architectural decision offers two deterministic advantages.
+First, it restores pipeline locality by completely eliminating the ``round-trip'' inter-stage communication during speculative drafting.
+Second, it ensures that all intermediate stages can participate in the base-model execution flow without being stalled by MTP-related data dependencies, effectively removing structural pipeline bubbles.
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.85\textwidth]{pics/mtp-solu2.pdf}
-    \caption{Centralized MTP processing. All MTP computation is consolidated into Stage $N-1$, eliminating cross-stage MTP communication.}
-    \label{fig:mtp-solution}
-\end{figure}
+The tradeoff is that the final stage now carries additional computation and memory overhead, which motivates the partitioning strategy below.
 
-\subsubsection{Overhead-Aware Stage Partitioning}
+\subsubsection{\Overheadpartition}
 
-While the centralized MTP design eliminates communication overhead, it makes Stage $N-1$ a computation hotspot, as it must handle both the base model layers and the multi-round MTP computation.
-To resolve this, we propose an Overhead-Aware Balanced Partitioning algorithm.
+While the centralized design restores locality, it shifts the system bottleneck, rendering Stage~$N{-}1$ a potential computation hotspot that must handle both base-model layers and multi-round MTP invocations.
+To equalize the stage-wise duty cycles, we propose an Overhead-Aware Balanced Partitioning algorithm.
 
-Unlike existing PP partitioning methods that treat MTP as a single layer, our approach explicitly accounts for the multi-round invocation overhead of MTP modules.
-We first profile the per-layer execution costs through offline benchmarking, then formulate the partition as a discrete optimization problem.
-The key insight is that partition points can only be placed at residual connection boundaries to maintain model structural integrity and minimize communication overhead.
+Unlike existing PP partitioning methods that treat MTP as a single monolithic layer, our approach explicitly models the recurrent execution overhead of MTP modules as a function of the speculation depth.
+We profile the per-layer execution costs through offline benchmarking and formulate the partitioning as a discrete optimization problem.
+To preserve the arithmetic intensity and minimize communication overhead, partition points are strictly restricted to residual connection boundaries.
 
 The optimization objective is to minimize the total execution time for $N$ micro-batches:
 \begin{equation}
-T = \sum_{i=1}^{P} T_{stage_i} + (N-1) \cdot T_{max}
+T = \sum_{i=1}^{P} T_i + (N-1) \cdot \max_{1 \leq i \leq P} T_i,
 \end{equation}
-where $P$ is the number of pipeline stages and $T_{max}$ is the bottleneck stage latency.
-Since $\sum_{i=1}^{P} T_{stage_i}$ is fixed for a given model, the objective reduces to minimizing $T_{max}$, which can be efficiently solved using binary search combined with greedy assignment.
+where $P$ is the number of pipeline stages and $T_i$ is the execution time of stage $i$.
+Since $\sum_{i=1}^{P} T_i$ is fixed for a given micro-batch (the total per-layer cost is invariant to how layers are partitioned), the objective reduces to minimizing the bottleneck stage latency $T_{\max} = \max_i T_i$.
+\sys solves this discrete partitioning problem efficiently in $O(L \log T)$ time via binary search on $T_{\max}$ with greedy verification, where $L$ is the total number of layers.
+This approach is significantly more efficient than the dynamic programming used in Alpa~\cite{alpa}, as it reduces the search space to layer-level partition boundaries, bypassing exhaustive joint-configuration enumeration.
 
-After balanced partitioning, Stage $N-1$ is assigned fewer base model layers to compensate for the MTP overhead, which also naturally offsets the memory overhead of the redundantly loaded Embedding layer.
+Through this overhead-aware strategy, Stage~$N{-}1$ is assigned fewer base-model layers to compensate for its MTP duties.
+Crucially, this computation-memory tradeoff is self-correcting: the reduction in base-layer weights naturally offsets the HBM footprint of the redundantly loaded Embedding, achieving holistic resource equilibrium.
 
-\subsection{\slicedkv and \stagekv}
+\subsection{\Slicedkv and \Stagekv}
+\label{sec:kvcache}
 
-To address the phase-interference imbalance, we propose a sliced KV cache management strategy with stage-wise KV transmission.
+To address \phaseimb, we propose a sliced \kvcache management strategy with stage-wise KV transmission.
+The key insight is that PP induces a fixed, layer-wise partitioning of \kvcache across stages: while the execution time of \Prefillterm and \Decodeterm phases fluctuates, the spatial ownership and unidirectional dependency of each \kvcache slice remain invariant.
+By localizing \kvcache management to each stage, \sys decouples each stage's data transfer from the global pipeline, enabling early release of KV memory and eliminating the accumulation bottleneck of bulk transmission.
 
-\subsubsection{Sliced KV Cache Management}
+\subsubsection{\Slicedkv}
 
-In PP-based PD disaggregation, each Prefill stage generates only a layer-wise slice of the complete KV cache, and each Decode stage requires only the slice corresponding to its assigned layers.
-This transforms the simple point-to-point KV cache transfer into a complex many-to-many routing problem.
+In PP-based PD disaggregation, each \Prefillterm stage generates only a layer-wise slice of the complete \kvcache, and each \Decodeterm stage requires only the slice corresponding to its assigned layers.
+This transforms the simple point-to-point \kvcache transfer into a complex stage-to-stage routing problem.
+To avoid the coordination overhead of a centralized manager, \sys treats each pipeline stage as an autonomous memory domain.
 
-\sys addresses this by assigning a dedicated KV Cache Connector to each pipeline stage rather than using a monolithic connector for the entire cluster.
-Each stage's connector independently manages its KV cache slice, including tracking memory allocation, transfer status, and garbage collection.
+\sys addresses this by assigning a dedicated \kvconnector to each pipeline stage rather than using a monolithic connector for the entire cluster.
+Each stage's connector independently manages its \kvcache slice, including tracking memory allocation, transfer status, and garbage collection.
+This fine-grained management allows each prefill stage to reclaim memory immediately after its local slice is transmitted, maximizing HBM availability during bursty traffic.
 
-\subsubsection{Stage-wise KV Transmission}
+\subsubsection{\Stagekv}
 
-The conventional approach of deferring KV cache transmission until all Prefill stages complete causes memory accumulation and potential pipeline stalls.
-\sys leverages the strictly uni-directional data dependency of KV cache generation to enable stage-wise KV transmission, as shown in Figure~\ref{fig:stage-wise-kv}.
+The conventional approach of deferring \kvcache transmission until all \Prefillterm stages complete causes memory accumulation and potential pipeline stalls.
+This bulk-synchronization approach forces early stages to hold stale KV data until the entire pipeline reaches the cool-down phase.
+\sys leverages the strictly unidirectional data dependency of \kvcache generation to enable stage-wise KV transmission, as shown in Figure~\ref{fig:stage-wise-kv}.
 
-%暂时到这里
 The transmission follows a pull-based model:
-\begin{enumerate}
-    \item During initialization, each Decode stage's KV Connector computes which Prefill stages it needs to request KV cache from, based on the layer assignment and PP configuration.
-    \item When a Decode stage is ready to receive KV cache, it simultaneously sends pull requests to all connected Prefill stages.
-    \item Each Prefill stage, upon completing its computation for a micro-batch, can immediately respond to KV cache pull requests from Decode stages, transferring and freeing its local KV cache slice without waiting for downstream stages.
+\begin{enumerate}[leftmargin=*]
+    \item Guided by the pre-defined stage-to-layer mapping, each \Decodeterm stage's \kvconnector computes which \Prefillterm stages it needs to request \kvcache from.
+    \item When a \Decodeterm stage is ready to receive \kvcache, it simultaneously sends pull requests to all connected \Prefillterm stages.
+    \item Each \Prefillterm stage, upon completing its computation for a micro-batch, can immediately respond to \kvcache pull requests from \Decodeterm stages, transferring and freeing its local \kvcache slice without waiting for downstream stages.
 \end{enumerate}
 
-This design effectively eliminates Prefill memory exhaustion and pipeline stalls, while the stage-level transmission granularity balances bandwidth utilization and communication overhead.
-%Prefill memory exhaustion前面好像没有提过
+By shifting from pipeline-level synchronization to stage-level granularity, this design effectively prevents the early-stage memory exhaustion discussed in Section~\ref{sec:moti}.
+It ensures that the \kvcache transmission flow is pipelined alongside the computation, thereby balancing bandwidth utilization and reducing the overall \kvcache transfer latency.
 
-%这个图要改，改为decode多对多
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{pics/stage-wise-kv.pdf}
-    \caption{Sliced KV cache management and stage-wise transmission. Each stage independently manages and transfers its own KV cache slice.}
+    \caption{\Slicedkv and \stagekv. Each stage independently manages and transfers its own \kvcache slice, eliminating the accumulation bottleneck of conventional bulk transmission.}
     \label{fig:stage-wise-kv}
 \end{figure}
 
-\subsection{\timesched}
+\subsection{\Timesched}
+\label{sec:scheduling}
 
-To address the request-variability imbalance, we replace static token-budgeting with fine-grained time-budgeting, which accounts for the quadratic attention complexity of LLMs. We call this approach Computation-Aware Scheduling.
+To address \requestimb, which arises from inherent request-length variance that the linear time-token assumption cannot adequately capture, we replace static token budgeting with fine-grained time budgeting.
+By explicitly accounting for the non-linear execution cost of attention mechanisms, \Timesched transforms the scheduling problem from a heuristic-based token filling into a deterministic execution-time optimization.
 
 \subsubsection{Quadratic Polynomial Cost Model}
 
 We model the execution time of a micro-batch as a quadratic function of chunk length ($x$) and historical context length ($y$):
 \begin{equation}
-T_{x,y} = a \cdot x^2 + b \cdot x \cdot y + c \cdot x + d \cdot y + e
+T(x,y) = a x^2 + bxy + cx + dy + e.
 \end{equation}
 
-This formulation captures the $O(S^2)$ complexity of attention mechanisms, where:
-\begin{itemize}
-    \item $x^2$ term captures the quadratic self-attention within the current chunk
-    \item $x \cdot y$ term captures the cross-attention between current chunk and historical context and softmax overhead
-    \item $x$ term captures linear operations within the current chunk (e.g., linear projection, element-wise activation)
-    \item $y$ term captures linear operations on historical context (e.g., MLA projection, linear memory access)
-    \item Constant term captures fixed overhead (e.g., kernel launch, operator dispatch)
+This formulation provides a high-fidelity abstraction of the quadratic attention complexity while remaining computationally lightweight for real-time scheduling.
+The terms in the model map to specific architectural operations:
+\begin{itemize}[leftmargin=*]
+    \item The $x^2$ term captures the quadratic self-attention within the current chunk.
+    \item The $xy$ term captures the cross-attention between the current chunk and historical context.
+    \item The $x$ term captures linear operations within the current chunk, such as linear projection and element-wise activation.
+    \item The $y$ term captures linear operations on historical context, such as \kvcache memory access and MLA projection.
+    \item The constant term $e$ encapsulates fixed system overheads, such as kernel launch latency and operator dispatch, ensuring accuracy even for small micro-batches.
 \end{itemize}
 
-The coefficients $(a, b, c, d, e)$ are initialized through offline profiling with a few sample points and can be dynamically updated during runtime using Recursive Least Squares (RLS) based on actual recorded latencies~\cite{haykin}.
-%RLS给一个citation
+To maintain the prediction accuracy of the cost model across diverse model architectures and operator implementations (e.g., FlashAttention~\cite{flashattention} vs.\ Standard Attention), the coefficients $(a,b,c,d,e)$ are initialized through a startup profiling run and can be continuously refined during runtime via Recursive Least Squares (RLS)~\cite{haykin}.
+This closed-loop adaptation allows \sys to automatically compensate for hardware-level timing variances without manual re-tuning.
+Each RLS update requires only $O(k^2)$ computation where $k{=}5$ is the number of coefficients, incurring negligible overhead.
 
 \subsubsection{Time-Budget Scheduling Algorithm}
 
-Based on the quadratic polynomial cost model, we propose a time-budget scheduling algorithm that explicitly controls micro-batch execution time to achieve balanced workloads across the pipeline.
-Unlike traditional token-budget approaches that assume linear time-token relationships, our method directly constrains execution time, naturally accounting for the quadratic attention complexity.
+\Timesched achieves pipeline balance by enforcing a strict temporal constraint, $T_{\mathrm{budget}}$, on each micro-batch, ensuring uniform execution times across stages regardless of the non-linear attention cost.
+Table~\ref{tab:scheduling-algorithm} shows the scheduling procedure.
+Unlike traditional token-budget schedulers that assume a linear time-token relationship, \sys directly constrains execution time: when a request's estimated cost exceeds the remaining budget, the scheduler reverse-calculates the maximum allowable chunk size $x_i$ by solving the quadratic inequality $T_{\mathrm{est}} \le B$.
 
-\begin{algorithm}[htbp]
-\caption{Computation-Aware Scheduling with Time-Budget Constraint}
-\label{alg:scheduling}
-\begin{algorithmic}[1]
-\State \textbf{Initialize} coefficients $\Theta = (a, b, c, d, e)$ via offline profiling
-\State Set maximum budget $T_{budget}$
-\Loop \text{ for each scheduling step}
-    \State $\mathcal{M} \leftarrow \emptyset$
-    \State $B \leftarrow T_{budget}$
-    \While{Request Queue is not empty \textbf{and} $B > 0$}
-        \State Pop request $r_i$ with remaining length $l_i$ and context length $y_i$
-        \State $T_{est} \leftarrow a l_i^2 + b l_i y_i + c l_i + d y_i + e$
-        \If{$T_{est} \le B$}
-            \State $x_i \leftarrow l_i$
-            \State $B \leftarrow B - T_{est}$
-        \Else \Comment{Budget exceeded: reverse-calculate maximum allowable chunk size $x_i$}
-            \State $x_i \leftarrow \left\lfloor \frac{-(b y_i + c) + \sqrt{(b y_i + c)^2 - 4a(d y_i + e - B)}}{2a} \right\rfloor$
-            \State Update $r_i$'s remaining length to $l_i - x_i$ and push back to Queue
-            \State $B \leftarrow 0$
-        \EndIf
-        \State $\mathcal{M} \leftarrow \mathcal{M} \cup \{ \text{chunk}(r_i, x_i) \}$
-    \EndWhile
-    \State Execute micro-batch $\mathcal{M}$ on Pipeline
-    \State \textbf{[Optional]} Record actual execution latency $T_{actual}$
-    \State \textbf{[Optional]} Update $\Theta$ using Recursive Least Squares (RLS) with $(\mathcal{M}, T_{actual})$
-\EndLoop
-\end{algorithmic}
-\end{algorithm}
+% TODO: 这个表格还是改成算法比较好
+\begin{table}[!htbp]
+\centering
+\caption{Computation-aware scheduling with a time-budget constraint.}
+\label{tab:scheduling-algorithm}
+\begin{tabular}{p{0.08\textwidth}p{0.84\textwidth}}
+\toprule
+\textbf{Step} & \textbf{Operation} \\
+\midrule
+1 & Initialize coefficients $\Theta=(a,b,c,d,e)$ via startup profiling and set the maximum micro-batch budget $T_{\mathrm{budget}}$. \\
+2 & For each scheduling step, initialize an empty micro-batch $\mathcal{M}$ and set the remaining budget $B \gets T_{\mathrm{budget}}$. \\
+3 & Pop the next request $r_i$ with remaining length $l_i$ and context length $y_i$, then estimate $T_{\mathrm{est}} = a l_i^2 + b l_i y_i + c l_i + d y_i + e$. \\
+4 & If $T_{\mathrm{est}} \leq B$, append the full remaining request chunk to $\mathcal{M}$ and update $B \gets B - T_{\mathrm{est}}$. \\
+5 & Otherwise, compute the largest feasible chunk length
+$x_i = \left\lfloor \frac{-(b y_i+c)+\sqrt{(b y_i+c)^2-4a(dy_i+e-B)}}{2a} \right\rfloor$,
+append $\mathrm{chunk}(r_i,x_i)$ to $\mathcal{M}$, and push the residual request back into the queue. \\
+6 & Execute $\mathcal{M}$ on the pipeline and optionally update $\Theta$ with the observed latency via RLS. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-Algorithm~\ref{alg:scheduling} presents the detailed scheduling procedure.
-The algorithm maintains a time budget $T_{budget}$ for each micro-batch and iteratively allocates requests until the budget is exhausted.
-For each request, it estimates the execution time using the quadratic model.
-If the estimated time fits within the remaining budget, the full chunk is allocated; otherwise, the algorithm reverse-calculates the maximum chunk size that satisfies the budget constraint.
-After execution, the actual latency is recorded to update the model coefficients via RLS, enabling continuous adaptation to workload characteristics.
+The budget $T_{\mathrm{budget}}$ is empirically set to the execution time of a zero-context micro-batch that saturates the available HBM capacity, and can be further calibrated to the hardware's compute saturation point, which effectively upper-bounds micro-batch cost and avoids out-of-memory failures under normal operating conditions.
+% TODO: 上面这句话先说占满HBM，再说计算饱和点，然后又说防止oom，这就不连续。改！
 
-The time budget hyperparameter $T_{budget}$ can be empirically set to the execution time of a zero-context request that precisely saturates hardware resources.
-This heuristic ensures that each micro-batch maximally utilizes available memory and compute without exceeding capacity, mathematically guaranteeing an OOM-free runtime.
+By explicitly modeling execution time rather than relying on token counts, \sys achieves balanced micro-batch execution times even under highly variable request lengths, minimizing the accumulated pipeline bubbles that typically plague long-context inference.
 
-By explicitly modeling execution time rather than relying on token counts, \sys achieves balanced micro-batch execution times even under highly variable request lengths, effectively eliminating request-variability induced pipeline bubbles.
-
+% ==========================================
+% 4 Preliminary Evaluation
+% ==========================================
 \section{Preliminary Evaluation}
+
+This section reports the initial validation experiments for \sys, focusing on end-to-end throughput improvements, pipeline efficiency, and robustness under strict latency SLOs.
+% TODO: 以上这一段要refine
 
 \subsection{Experimental Setup}
 
-\textbf{Hardware and Model.}
+\textbf{Hardware and model.}
 We implemented \sys on top of the OmniInfer framework~\cite{omniinfer}.
-The evaluation was conducted on a 32-NPU (4-node) Ascend 910C cluster, with each node containing 8 NPUs interconnected via HCCL~\cite{hccl}.
-We deployed the DeepSeek-R1 (671B) model~\cite{deepseek-r1}, which features a Mixture-of-Experts architecture and supports Multi-Token Prediction.
+The evaluation was conducted on a \clusterconfig, with each node containing 8 Ascend 910C NPUs interconnected via HCCL~\cite{hccl}.
+We deployed DeepSeek-R1 (671B)~\cite{deepseek-r1}, which features a Mixture-of-Experts architecture and supports MTP.
 
 \textbf{Baselines.}
 We compared \sys against two representative baselines:
-\begin{itemize}
-    \item \textbf{vLLM-Ascend~\cite{vllm, vllm-ascend}:} The standard open-source inference engine for Ascend NPUs.
-    \item \textbf{OmniInfer~\cite{omniinfer}:} A state-of-the-art industrial solution that implements MTP and PD disaggregation but without PP integration.
+\begin{itemize}[leftmargin=*]
+    \item \textbf{vLLM-Ascend~\cite{vllm,vllm-ascend}:} the standard open-source inference engine for Ascend NPUs.
+    \item \textbf{OmniInfer~\cite{omniinfer}:} a state-of-the-art industrial solution that implements MTP and PD disaggregation but without PP integration.
 \end{itemize}
 
-\textbf{Workloads.}
-We evaluated under four workload configurations: Short-context Fixed (2K), Short-context Variable (2K), Long-context Fixed (32K), and Long-context Variable (32K).
+\textbf{Fairness.}
+Unless otherwise stated, all systems are evaluated under the same 32-NPU hardware budget, the same DeepSeek-R1 checkpoint, the same MTP depth, the same batching-related limits, and the same \Prefillterm/\Decodeterm resource split.
 
-\textbf{Metrics.}
-We measure: (1) \textbf{Throughput} (requests/second) under strict latency SLO constraints; (2) \textbf{Pipeline Bubble Ratio} defined as idle time / total execution time; (3) \textbf{Accuracy} on the HumanEval benchmark to verify correctness.
+\textbf{Workloads and metrics.}
+We evaluated under four workload configurations: short-context fixed (2K), short-context variable (2K), long-context fixed (32K), and long-context variable (32K).
+The fixed-length workloads serve as controlled stress tests in which all requests share the same context budget.
+The variable-length workloads replay a shared request trace with naturally varying prompt and generation lengths; all systems process the same request sequence in the same order under the same latency SLO target, so the comparison is not affected by workload skew.
+% TODO: 上面这句话胡说八道，变长数据集跟share无关。
+The primary metric is end-to-end throughput under strict latency SLO constraints.
+We also measure pipeline bubble ratio and verify model correctness on HumanEval~\cite{human-eval}.
 
-\textbf{Research Questions.}
-Based on the metrics, we aim to answer the following questions:
-\begin{itemize}
-    \item \textbf{RQ1 (Throughput):} How much does \sys improve end-to-end throughput compared to baselines under the same SLOs?
+\textbf{Research questions.}
+The preliminary evaluation answers three questions:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{RQ1 (Throughput):} How much does \sys improve end-to-end throughput under identical SLOs?
     \item \textbf{RQ2 (Pipeline Efficiency):} Does \sys effectively mitigate pipeline bubbles in highly variable-length request scenarios?
     \item \textbf{RQ3 (Robustness):} Can \sys guarantee zero degradation in model accuracy?
 \end{itemize}
@@ -509,125 +533,164 @@ Based on the metrics, we aim to answer the following questions:
 \subsection{End-to-End Throughput}
 
 Figure~\ref{fig:throughput} presents the normalized end-to-end throughput comparison under different workload configurations.
+Under strict SLO constraints, \sys achieves up to \vllmgain higher throughput than vLLM-Ascend and \omnigain higher throughput than OmniInfer.
+The improvement over vLLM-Ascend is most significant in long-context scenarios (32K), where vLLM-Ascend's suboptimal implementation leaves substantial room for optimization.
+While OmniInfer benefits from fine-grained optimizations, its lack of PP integration prevents it from fully leveraging pipeline parallelism's communication efficiency.
+\sys's synergistic co-design enables it to combine the benefits of all three techniques, achieving superior performance across all workload configurations.
+The performance gap between \sys and the baselines widens under variable-length workloads, demonstrating the effectiveness of \timesched for handling request variability.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \begin{minipage}{0.48\textwidth}
+    \begin{subfigure}{0.48\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_2k_fixed.pdf}
-        \caption*{(a) 2K Fixed-length}
-    \end{minipage}
+        \caption{2K fixed-length}
+    \end{subfigure}
     \hfill
-    \begin{minipage}{0.48\textwidth}
+    \begin{subfigure}{0.48\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_2k_var.pdf}
-        \caption*{(b) 2K Variable-length}
-    \end{minipage}
-    
-    \vspace{0.3cm}
-    
-    \begin{minipage}{0.48\textwidth}
+        \caption{2K variable-length}
+    \end{subfigure}
+
+    \vspace{0.25cm}
+
+    \begin{subfigure}{0.48\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_32k_fixed.pdf}
-        \caption*{(c) 32K Fixed-length}
-    \end{minipage}
+        \caption{32K fixed-length}
+    \end{subfigure}
     \hfill
-    \begin{minipage}{0.48\textwidth}
+    \begin{subfigure}{0.48\textwidth}
         \centering
         \includegraphics[width=\textwidth]{pics/plot_32k_var.pdf}
-        \caption*{(d) 32K Variable-length}
-    \end{minipage}
-    \caption{Normalized end-to-end throughput comparison. \sys consistently outperforms the baselines across all workload configurations.}
+        \caption{32K variable-length}
+    \end{subfigure}
+    \caption{Normalized end-to-end throughput comparison. \sys consistently outperforms the baselines across all workload configurations under the same SLO constraints.}
     \label{fig:throughput}
 \end{figure}
-
-Under strict SLO constraints, \sys achieves up to \vllmgain throughput improvement over vLLM-Ascend and \omnigain over OmniInfer.
-The improvement over vLLM-Ascend is most significant in long-context scenarios (32K), where vLLM-Ascend's suboptimal implementation leaves substantial room for optimization.
-While OmniInfer benefits from MTP and PD disaggregation, its lack of PP integration prevents it from fully leveraging pipeline parallelism's communication efficiency.
-\sys's synergistic co-design enables it to combine the benefits of all three techniques, achieving superior performance across all workload configurations.
-
-\textbf{Variable-length Robustness.}
-The performance gap between \sys and baselines widens under variable-length workloads, demonstrating the effectiveness of our computation-aware scheduling in handling request variability.
-% While token-based schedulers struggle with the quadratic attention complexity, \sys's time-budget approach maintains balanced micro-batch execution times.这个没体现出来，这个应该通过后续的消融来体现
 
 \subsection{Pipeline Efficiency}
 
 Figure~\ref{fig:bubble-analysis} illustrates the pipeline bubble breakdown, demonstrating that our approach effectively addresses all sources of imbalance.
-These results demonstrate that \sys strictly bounds the pipeline bubble ratio to under \bubblecap across all workload configurations.
+\sys strictly bounds the pipeline bubble ratio to under \bubblecap across all evaluated workloads.
+This indicates that the three mechanisms act synergistically: \overheadpartition balances stage latency, \stagekv prevents \kvcache accumulation from stalling early stages, and \timesched reduces micro-batch time variance.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{pics/nobubble.pdf}
-    \caption{Pipeline bubble analysis. \sys maintains balanced micro-batch execution times and keeps the bubble ratio below \bubblecap.}
+    \includegraphics[width=0.72\textwidth]{pics/nobubble.pdf}
+    \caption{Pipeline bubble analysis. \sys maintains balanced micro-batch execution times and keeps the bubble ratio below \bubblecap across all workload configurations.}
     \label{fig:bubble-analysis}
 \end{figure}
-
-% The results demonstrate that our approach effectively addresses all sources of imbalance:
-% \begin{itemize}
-%     \item The pipeline achieves balanced stage execution, with no single stage emerging as a significant bottleneck.
-%     \item Prefill stages do not accumulate KV cache, preventing pipeline stalls even under bursty traffic conditions.
-%     \item Pipeline efficiency remains stable even under highly variable request lengths, maintaining consistent throughput regardless of workload variability.
-% \end{itemize}
 
 \subsection{Accuracy Verification}
 
 To verify that our scheduling and partitioning strategies do not compromise model correctness, we evaluated \sys on the HumanEval benchmark~\cite{human-eval}.
-Table~\ref{tab:accuracy} presents the accuracy comparison across different systems.
+As shown in Table~\ref{tab:accuracy}, \sys achieved a \humanevalpass pass rate, exactly matching OmniInfer.
+The small gap relative to vLLM-Ascend may be attributed to differences in operator implementations inherited from OmniInfer.
+This confirms that our techniques introduce no accuracy degradation while delivering significant performance improvements.
 
-\begin{table}[h]
+\begin{table}[!htbp]
 \centering
-\caption{Accuracy comparison on the HumanEval benchmark}
+\caption{Accuracy comparison on the HumanEval benchmark.}
 \label{tab:accuracy}
 \begin{tabular}{lc}
 \toprule
-\textbf{System} & \textbf{HumanEval Pass Rate (\%)} \\
+\textbf{System} & \textbf{Pass@1-COT (\%)} \\
 \midrule
 vLLM-Ascend & 91.83 \\
-OmniInfer (w/o PP) & \humanevalpass \\
+OmniInfer (without PP) & \humanevalpass \\
 \sys & \humanevalpass \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\sys achieved a \humanevalpass pass rate, exactly matching OmniInfer.
-The small gap relative to vLLM-Ascend may be attributed to differences in operator implementations inherited from OmniInfer.
-This confirms that our techniques introduce no accuracy degradation while delivering significant performance improvements.
+% ==========================================
+% 5 Related Work
+% ==========================================
+% TODO: Related work写太多了，参考paper压缩一下
+\section{Related Work}
 
-% \subsection{Ablation Study}
-% No ablation study now.
-% Maybe ablation computation-aware scheduling later.
+\paragraph{Parallelism strategies for distributed inference.}
+Distributed LLM inference employs several complementary parallelization strategies, each with distinct communication--computation tradeoffs.
+Data parallelism replicates the full model across devices to scale throughput but cannot address the fundamental problem of a single replica exceeding one node's memory.
+Tensor parallelism~\cite{megatron} partitions weight matrices within each layer, requiring layer-wise All-Reduce collectives whose cost scales linearly with model depth and grows prohibitively across nodes.
+Automated hybrid partitioners such as Alpa~\cite{alpa} search over TP and PP configurations jointly but target training workloads with uniform micro-batches.
+Early inference systems further validate the practicality of model parallelism for serving~\cite{deepspeed-inference,energonai,alpaserve}.
+Expert parallelism~\cite{deepseekv3,cloudmatrix384} distributes MoE experts across devices, achieving good load balance when expert popularity is uniform; however, its layer-wise All-to-All dispatch remains communication-intensive and is sensitive to expert-load skew.
+Context parallelism~\cite{ringattention,loongserve} partitions tokens along the sequence dimension across devices to handle long contexts, but it is orthogonal to weight partitioning and still incurs substantial inter-device \kvcache exchange.
+Note that CP differs from Sequence Parallelism (SP)~\cite{megatron-sp}, which partitions activations along the sequence dimension \emph{within} tensor-parallel groups to reduce activation memory; SP is tightly coupled with TP and does not address cross-node communication.
+Pipeline parallelism~\cite{gpipe,pipedream,terapipe} instead transfers only stage-boundary activations, making it especially attractive when cross-node bandwidth is limited.
+Our work builds on PP's communication advantage and focuses on the inference-specific question that prior parallelization work leaves open: how to keep PP balanced and efficient under online, heterogeneous LLM workloads with PD disaggregation and MTP.
 
+\paragraph{Pipeline parallelism and its optimization.}
+A substantial body of work studies PP scheduling and bubble reduction in the training setting.
+GPipe~\cite{gpipe} introduced synchronous micro-batch pipelining; PipeDream~\cite{pipedream} relaxed synchronization for higher throughput; TeraPipe~\cite{terapipe} proposed token-level pipelining with dynamic-programming-based chunk balancing; and Zero-Bubble PP~\cite{zerobubble} achieved near-zero bubbles by splitting backward passes and interleaving computation.
+Recent work further shows that special layers such as vocabulary projections can themselves become dominant PP bottlenecks~\cite{vocabparallel}.
+These methods provide important algorithmic foundations but assume homogeneous micro-batches with fixed sizes---an assumption that breaks down in inference, where \Prefillterm and \Decodeterm exhibit fundamentally different computational profiles and request lengths vary dynamically.
+Among inference-oriented systems, Seesaw~\cite{seesaw} revisits PP for LLM serving by dynamically re-sharding the model so that \Prefillterm and \Decodeterm can use different parallelization strategies.
+Other recent works address complementary aspects: gLLM~\cite{gllm} throttles tokens for \Prefillterm/\Decodeterm balance, TD-Pipe~\cite{tdpipe} temporally disaggregates phases, DynaPipe~\cite{dynapipe} dynamically redistributes layers, and SiPipe~\cite{sipipe} leverages CPU/GPU cooperation.
+However, none of these systems jointly tackles the three runtime bottlenecks that persist \emph{within} a PP configuration: stage imbalance introduced by MTP co-execution, phase interference caused by stage-partitioned \kvcache transfer, and request-level variance caused by quadratic attention complexity.
+\sys keeps PP as the primary cross-node execution abstraction and directly mitigates all three bottlenecks through online co-design with MTP, PD disaggregation, and \timesched.
+
+\paragraph{Serving runtimes and scheduling.}
+Modern serving systems have introduced a series of scheduling and memory-management innovations to improve LLM throughput and latency.
+Orca~\cite{orca} pioneered iteration-level scheduling with continuous batching.
+vLLM~\cite{vllm} introduced PagedAttention for efficient \kvcache memory management.
+Sarathi-Serve~\cite{sarathi} proposed chunked prefill to co-locate short decode steps alongside prefill chunks, improving GPU utilization.
+FastServe~\cite{fastserve} applied iteration-level preemptive scheduling with proactive \kvcache offloading to reduce inference latency.
+Llumnix~\cite{llumnix} explored live migration of requests across instances for cluster-level load balancing.
+SGLang~\cite{sglang} introduced RadixAttention for \kvcache reuse and efficient structured output decoding.
+These systems substantially improve single-instance or cluster-level efficiency, but their scheduling policies assume a roughly linear relationship between token count and execution time.
+Concurrently, the SGLang team explored chunked pipeline parallelism with a dynamic chunking mechanism that progressively reduces chunk sizes based on a univariate quadratic runtime model~\cite{sglang-pp-blog}.
+While sharing the high-level insight that attention's quadratic complexity invalidates fixed-size chunking, their work focuses on chunking a single long-context request through the prefill pipeline, whereas \sys jointly schedules multiple concurrent requests with heterogeneous lengths into balanced micro-batches and replaces token budgets with explicit time budgets derived from a bivariate quadratic cost model.
+
+\paragraph{Prefill-Decode disaggregation and KV cache management.}
+Separating \Prefillterm and \Decodeterm onto dedicated hardware pools has emerged as a standard approach to eliminate cross-phase interference.
+Splitwise~\cite{splitwise} and DistServe~\cite{distserve} independently proposed PD disaggregation, demonstrating significant goodput improvements.
+Subsequent systems extended this paradigm: D\'{e}j\`{a}Vu~\cite{dejavu} introduced \kvcache streaming for fault tolerance, Mooncake~\cite{mooncake} designed a KV-cache-centric disaggregated architecture, MemServe~\cite{memserve} unified context caching with disaggregation through an elastic memory pool, P/D-Serve~\cite{pdserve} scaled disaggregated serving to tens of thousands of devices, TetriInfer~\cite{tetriinfer} optimized mixed-workload disaggregation, and FlowKV~\cite{flowkv} accelerated \kvcache transfer through optimized communication scheduling.
+InfiniGen~\cite{infinigen} and CloudMatrix384~\cite{cloudmatrix384} further advanced \kvcache management with speculative prefetching and hardware-aware transfer, respectively.
+However, these systems universally assume simple point-to-point \kvcache transfer paths between \Prefillterm and \Decodeterm instances.
+When PP is introduced, \kvcache becomes stage-partitioned, transforming point-to-point transfers into complex many-to-many routing---a challenge that \sys addresses through \slicedkv and \stagekv.
+
+\paragraph{Speculative decoding and MTP-aware inference.}
+Speculative decoding accelerates auto-regressive generation by drafting multiple candidate tokens in parallel and verifying them against the target model in a single forward pass.
+EAGLE~\cite{eagle} introduced feature-uncertainty-aware drafting, Medusa~\cite{medusa} attached lightweight parallel decoding heads to the base model, and SpecInfer~\cite{specinfer} organized candidate tokens into a tree structure for efficient parallel verification.
+Multi-Token Prediction (MTP), as adopted by DeepSeek-V3~\cite{deepseekv3} and DeepSeek-R1~\cite{deepseek-r1}, co-designs the training objective with inference-time speculation, and production systems such as OmniInfer~\cite{omniinfer} and CloudMatrix384~\cite{cloudmatrix384} have demonstrated substantial throughput gains from MTP integration.
+Despite this progress, prior work universally treats MTP as a decoding-side acceleration technique, assuming that all MTP components reside on a single device.
+Once PP is introduced, MTP becomes a stage-placement and synchronization problem: the shared Embedding and LM Head weights are dispersed across the first and last pipeline stages, creating additional communication paths and idle stages.
+\sys addresses this gap by co-designing MTP placement with stage partitioning, consolidating all MTP computation into a single stage and incorporating multi-round MTP overhead into the partitioning objective.
 
 % ==========================================
-% 4 Conclusion
-% ==========================================
-\section{Conclusion}
-
-We systematically identified that naive pipeline parallelism in LLM inference fails due to multi-dimensional load imbalance: \modelimb, \phaseimb, and \requestimb.
-We engineered \sys, the first pipeline-balanced high-performance LLM inference system.
-Through a synergistic co-design of \centralmtp, \stagekv, and \timesched, \sys efficiently addresses all sources of imbalance bubbles.
-Evaluated on DeepSeek-R1 (671B) over Ascend 910C clusters, \sys delivers up to \vllmgain throughput gains over open-source standards under the same SLO constraints, while maintaining zero accuracy degradation.
-The system has been successfully deployed in production clusters, demonstrating its practical viability for large-scale LLM serving.
-
-
-% ==========================================
-% 5 Future Work
+% 6 Future Work
 % ==========================================
 \section{Future Work}
 
-While \sys significantly resolves load imbalance issues in pipeline-parallel LLM inference, there remains room for further improvement.
-Our future work will focus on the following directions:
+The preliminary evaluation suggests that balanced PP is promising for large-scale LLM serving, but several directions remain open.
 
-\begin{itemize}
-    \item \textbf{Automated Fault Tolerance for Pipeline Parallelism:} In a cross-node PP setup, the failure of a single node (or NPU) can stall the entire pipeline, leading to catastrophic inference failures.
-    We plan to design a lightweight, state-aware recovery mechanism.
-    By utilizing the stage-wise KV Cache Connectors introduced in \sys, we can periodically checkpoint metadata and KV states asynchronously, enabling rapid recreation of failed stages without recomputing the entire prompt from scratch.
-    
-    \item \textbf{Offline Inference Optimization:} In offline inference scenarios (e.g., the rollout phase in LLM reinforcement learning (RL) post-training~\cite{rl-posttraining}), throughput is the primary optimization objective.
-    We plan to further optimize \sys for offline inference workloads, where batch size and sequence length can be more aggressively tuned to maximize hardware utilization without online latency constraints.
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Robustness and fault recovery.}
+    A PP deployment is sensitive to stage failures because a single failed stage can block the entire pipeline.
+    Future work will investigate lightweight recovery mechanisms, such as stage-level checkpointing or rapid stage migration, that use stage-wise KV metadata to recreate failed stages without recomputing from scratch.
+
+    \item \textbf{Offline batch inference.}
+    \sys currently targets online serving with strict latency SLOs.
+    Adapting its scheduling and partitioning strategies to offline batch-inference scenarios---where throughput maximization without latency constraints is the primary goal---could unlock additional efficiency gains.
+
+    \item \textbf{Joint time-memory budget optimization.}
+    The current \timesched constrains micro-batch execution time rather than token count, which may leave a small amount of accelerator memory temporarily underutilized when the time budget is reached before memory capacity is fully occupied.
+    Extending the scheduler to co-optimize time and memory budgets is a natural next step.
 \end{itemize}
 
-By addressing these challenges, we aim to evolve \sys into a highly resilient, fully autonomous inference infrastructure capable of sustaining the next generation of trillion-parameter models.
+% ==========================================
+% 7 Conclusion
+% ==========================================
+\section{Conclusion}
+
+We systematically identified that naive pipeline parallelism in LLM inference fails because of multi-dimensional load imbalance: \modelimb, \phaseimb, and \requestimb.
+We designed \sys, a pipeline-balanced high-performance LLM inference system that addresses all three imbalance dimensions through a synergistic co-design of \centralmtp, \overheadpartition, \slicedkv, \stagekv, and \timesched.
+Preliminary evaluation on DeepSeek-R1 (671B) over Ascend 910C clusters demonstrates that \sys delivers up to \vllmgain throughput gains over open-source standards under the same SLO constraints, while strictly bounding pipeline bubbles below \bubblecap and maintaining zero accuracy degradation.
+These results motivate continued work toward a robust, adaptive, and production-ready pipeline-balanced inference infrastructure for future trillion-parameter LLMs.
 
 
 % ==========================================
